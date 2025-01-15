@@ -120,6 +120,9 @@ struct ClientConfig {
 	//! The maximum amount of OR filters we generate dynamically from a hash join
 	idx_t dynamic_or_filter_threshold = 50;
 
+	//! Whether a Bloom-filter should be used to filter the probe side of hash joins.
+	bool hash_join_bloom_filter = true;
+
 	//! Whether the "/" division operator defaults to integer division or floating point division
 	bool integer_division = false;
 	//! When a scalar subquery returns multiple rows - return a random row instead of returning an error
