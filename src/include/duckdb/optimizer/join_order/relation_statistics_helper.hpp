@@ -47,6 +47,16 @@ public:
 public:
 	static idx_t InspectTableFilter(idx_t cardinality, idx_t column_index, TableFilter &filter,
 	                                BaseStatistics &base_stats);
+	static idx_t InspectParachuteTableFilters(
+		LogicalGet &get,
+		ClientContext &context,
+		std::string table_name,
+		idx_t base_cardinality,
+		std::vector<idx_t> column_indices,
+		std::vector<std::string> column_names,
+		TableFilterSet &table_filters
+	);
+
 	//	static idx_t InspectConjunctionOR(idx_t cardinality, idx_t column_index, ConjunctionOrFilter &filter,
 	//	                                  BaseStatistics &base_stats);
 	//! Extract Statistics from a LogicalGet.
