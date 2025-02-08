@@ -112,8 +112,13 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 		}
 	}
 
-	auto table_name = get.GetTable()->name;
-	std::cerr << "\n[ExtractGetStats] table_name=" << table_name << std::endl;
+	std::cerr << "\n[ExtractGetStats]" << std::endl;
+	std::string table_name = "dummy_table";
+	if (get.GetTable()) {
+		table_name = get.GetTable()->name;
+	}
+	std::cerr << "table_name=" << table_name << std::endl;
+	
 
 	auto parachute_stats_file = ClientConfig::GetSetting<ParachuteStatsSetting>(context);
 	auto parachute_stats = ParachuteStats(parachute_stats_file);
@@ -135,11 +140,17 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 			// NOTE: After: After the actual filters have been applied.
 			// NOTE: We can have a mode=-1, 0, 1, 2.
 
-      const auto& column_name = get.GetTable()->GetColumn(LogicalIndex(it.first)).Name();
-			std::cerr << "Estimate: " << column_name << std::endl;
-
 			if (column_statistics) {
 				// Set default value.
+
+				// TODO: Could be that this can only be used if `get.bind_data`, since `GetTable()` returns an optional pointer.
+				std::string column_name = "dummy_column";
+				if (get.GetTable()) {
+					column_name = get.GetTable()->GetColumn(LogicalIndex(it.first)).Name();
+				}
+				// const auto& column_name = get.GetTable()->GetColumn(LogicalIndex(it.first)).Name();
+				std::cerr << "Estimate: " << column_name << std::endl;
+
 				idx_t cardinality_with_filter = cardinality_after_filters;
 				if (starts_with(column_name, "parachute_")) {
 					if (use_parachute_stats) {
@@ -503,10 +514,10 @@ double ParachuteStats::compute_selectivity(std::string tn, std::string cn, std::
 	return 0.0;
 }
 
-idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& stats, idx_t cardinality, idx_t column_index,  TableFilter &filter, std::string table_name, std::string column_name, BaseStatistics &base_stats) {
+idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& stats, idx_t cardinality, idx_t column_index,  TableFilter &filter, std::string tab_name, std::string col_name, BaseStatistics &base_stats) {
 	auto cardinality_after_filters = cardinality;
 	
-	std::cerr << "[InspectParachuteFilter] tn=" << table_name << " cn=" << column_name << std::endl;
+	std::cerr << "[InspectParachuteFilter] tn=" << tab_name << " cn=" << col_name << std::endl;
 
 	switch (filter.filter_type) {
 		case TableFilterType::CONJUNCTION_AND: {
@@ -527,50 +538,65 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& stats, id
 					auto val = comparison_filter.constant.GetValue<uint32_t>();
 
 					// TODO: Don't return if we have multiple filters (later).
-					if (!stats.has(table_name, column_name))
+					if (!stats.has(tab_name, col_name))
 						return cardinality_after_filters;
 
-					auto sel = stats.compute_selectivity(table_name, column_name, "=", val);
+					auto sel = stats.compute_selectivity(tab_name, col_name, "=", val);
+
+					std::cerr << "[" << col_name << " = " << val << "]: sel=" << sel << std::endl;
+
 					return static_cast<idx_t>(sel * cardinality_after_filters);
 				}
 				case ExpressionType::COMPARE_LESSTHAN: {
 					auto val = comparison_filter.constant.GetValue<uint32_t>();
 
 					// TODO: Don't return if we have multiple filters (later).
-					if (!stats.has(table_name, column_name))
+					if (!stats.has(tab_name, col_name))
 						return cardinality_after_filters;
 
-					auto sel = stats.compute_selectivity(table_name, column_name, "<", val);
+					auto sel = stats.compute_selectivity(tab_name, col_name, "<", val);
+
+					std::cerr << "[" << col_name << " < " << val << "]: sel=" << sel << std::endl;
+
 					return static_cast<idx_t>(sel * cardinality_after_filters);
 				}
 				case ExpressionType::COMPARE_LESSTHANOREQUALTO: {
 					auto val = comparison_filter.constant.GetValue<uint32_t>();
 
 					// TODO: Don't return if we have multiple filters (later).
-					if (!stats.has(table_name, column_name))
+					if (!stats.has(tab_name, col_name))
 						return cardinality_after_filters;
 
-					auto sel = stats.compute_selectivity(table_name, column_name, "<=", val);
+					auto sel = stats.compute_selectivity(tab_name, col_name, "<=", val);
+
+					std::cerr << "[" << col_name << " <= " << val << "]: sel=" << sel << std::endl;
+
 					return static_cast<idx_t>(sel * cardinality_after_filters);
 				}
 				case ExpressionType::COMPARE_GREATERTHAN: {
 					auto val = comparison_filter.constant.GetValue<uint32_t>();
 
 					// TODO: Don't return if we have multiple filters (later).
-					if (!stats.has(table_name, column_name))
+					if (!stats.has(tab_name, col_name))
 						return cardinality_after_filters;
 
-					auto sel = stats.compute_selectivity(table_name, column_name, ">", val);
+					auto sel = stats.compute_selectivity(tab_name, col_name, ">", val);
+
+					std::cerr << "[" << col_name << " > " << val << "]: sel=" << sel << std::endl;
+
 					return static_cast<idx_t>(sel * cardinality_after_filters);
 				}
 				case ExpressionType::COMPARE_GREATERTHANOREQUALTO: {
 					auto val = comparison_filter.constant.GetValue<uint32_t>();
 
 					// TODO: Don't return if we have multiple filters (later).
-					if (!stats.has(table_name, column_name))
+					if (!stats.has(tab_name, col_name))
 						return cardinality_after_filters;
 
-					auto sel = stats.compute_selectivity(table_name, column_name, ">=", val);
+					auto sel = stats.compute_selectivity(tab_name, col_name, ">=", val);
+
+					std::cerr << "[" << col_name << " >= " << val << "]: sel=" << sel << std::endl;
+
 					return static_cast<idx_t>(sel * cardinality_after_filters);
 				}
 				default: {
