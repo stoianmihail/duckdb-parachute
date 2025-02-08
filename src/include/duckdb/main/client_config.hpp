@@ -93,6 +93,9 @@ struct ClientConfig {
 	idx_t perfect_ht_threshold = 12;
 	//! The maximum number of rows to accumulate before sorting ordered aggregates.
 	idx_t ordered_aggregate_threshold = (idx_t(1) << 18);
+	//! The file to read parachutes estimates from.
+	//! (empty = don't use estimates)
+	string parachute_stats_file;
 	//! The number of rows to accumulate before flushing during a partitioned write
 	idx_t partitioned_write_flush_threshold = idx_t(1) << idx_t(19);
 	//! The amount of rows we can keep open before we close and flush them during a partitioned write

@@ -1102,6 +1102,24 @@ bool OrderedAggregateThresholdSetting::OnLocalSet(ClientContext &context, const 
 }
 
 //===----------------------------------------------------------------------===//
+// Parachute Cardinality Estimates Input File
+//===----------------------------------------------------------------------===//
+void ParachuteStatsSetting::SetLocal(ClientContext &context, const Value &input) {
+	auto &config = ClientConfig::GetConfig(context);
+	auto parameter = input.ToString();
+	config.parachute_stats_file = parameter;
+}
+
+void ParachuteStatsSetting::ResetLocal(ClientContext &context) {
+	ClientConfig::GetConfig(context).parachute_stats_file = ClientConfig().parachute_stats_file;
+}
+
+Value ParachuteStatsSetting::GetSetting(const ClientContext &context) {
+	auto &config = ClientConfig::GetConfig(context);
+	return Value(config.parachute_stats_file);
+}
+
+//===----------------------------------------------------------------------===//
 // Password
 //===----------------------------------------------------------------------===//
 void PasswordSetting::SetGlobal(DatabaseInstance *db, DBConfig &config, const Value &input) {

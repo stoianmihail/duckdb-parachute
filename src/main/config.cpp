@@ -144,6 +144,7 @@ static const ConfigurationOption internal_options[] = {
     DUCKDB_GLOBAL(OldImplicitCastingSetting),
     DUCKDB_LOCAL(OrderByNonIntegerLiteralSetting),
     DUCKDB_LOCAL(OrderedAggregateThresholdSetting),
+		DUCKDB_LOCAL(ParachuteStatsSetting),
     DUCKDB_LOCAL(PartitionedWriteFlushThresholdSetting),
     DUCKDB_LOCAL(PartitionedWriteMaxOpenFilesSetting),
     DUCKDB_GLOBAL(PasswordSetting),

@@ -9,6 +9,7 @@
 
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/logical_operator.hpp"
+#include <fstream>
 
 namespace duckdb {
 
@@ -40,6 +41,15 @@ struct RelationStats {
 	}
 };
 
+class ParachuteStats {
+	std::unordered_map<std::string, std::unordered_map<std::string, std::vector<idx_t>>> stats;
+public:
+	ParachuteStats(std::string input_file, char delim=',');
+
+	bool has(std::string table_name, std::string column_name);
+	double compute_selectivity(std::string table_name, std::string column_name, std::string op, idx_t bin_idx);
+};
+
 class RelationStatisticsHelper {
 public:
 	static constexpr double DEFAULT_SELECTIVITY = 0.2;
@@ -47,15 +57,7 @@ public:
 public:
 	static idx_t InspectTableFilter(idx_t cardinality, idx_t column_index, TableFilter &filter,
 	                                BaseStatistics &base_stats);
-	static idx_t InspectParachuteTableFilters(
-		LogicalGet &get,
-		ClientContext &context,
-		std::string table_name,
-		idx_t base_cardinality,
-		std::vector<idx_t> column_indices,
-		std::vector<std::string> column_names,
-		TableFilterSet &table_filters
-	);
+	static idx_t InspectParachuteFilter(ParachuteStats& stats, idx_t cardinality, idx_t column_index, TableFilter &filter, std::string column_name, std::string table_name, BaseStatistics &base_stats);
 
 	//	static idx_t InspectConjunctionOR(idx_t cardinality, idx_t column_index, ConjunctionOrFilter &filter,
 	//	                                  BaseStatistics &base_stats);

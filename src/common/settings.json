@@ -629,6 +629,13 @@
         ]
     },
     {
+        "name": "parachute_stats_file",
+        "description": "The file to read parachute estimates from (default: empty, i.e., don't use *any* estimates for parachute columns)",
+        "type": "VARCHAR",
+        "scope": "local",
+        "custom_implementation": true
+    },
+    {
         "name": "partitioned_write_flush_threshold",
         "description": "The threshold in number of rows after which we flush a thread state when writing using PARTITION_BY",
         "type": "UBIGINT",

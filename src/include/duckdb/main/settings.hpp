@@ -951,6 +951,17 @@ struct OrderedAggregateThresholdSetting {
 	static Value GetSetting(const ClientContext &context);
 };
 
+struct ParachuteStatsSetting {
+	using RETURN_TYPE = string;
+	static constexpr const char *Name = "parachute_stats_file";
+	static constexpr const char *Description =
+			"The file with the estimates.";
+	static constexpr const char *InputType = "VARCHAR";
+	static void SetLocal(ClientContext &context, const Value &parameter);
+	static void ResetLocal(ClientContext &context);
+	static Value GetSetting(const ClientContext &context);
+};
+
 struct PartitionedWriteFlushThresholdSetting {
 	using RETURN_TYPE = idx_t;
 	static constexpr const char *Name = "partitioned_write_flush_threshold";
