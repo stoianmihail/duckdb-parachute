@@ -112,16 +112,13 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 		}
 	}
 
-	std::cerr << "\n[ExtractGetStats]" << std::endl;
 	std::string table_name = "dummy_table";
 	if (get.GetTable()) {
 		table_name = get.GetTable()->name;
 	}
-	std::cerr << "table_name=" << table_name << std::endl;
 	
-
 	auto parachute_stats_file = ClientConfig::GetSetting<ParachuteStatsSetting>(context);
-	auto parachute_stats = ParachuteStats(parachute_stats_file);
+	auto parachute_stats = ClientConfig::GetConfig(context).GetParachuteStats();
 	bool use_parachute_stats = (!parachute_stats_file.empty());
 
 	if (!get.table_filters.filters.empty()) {
@@ -141,24 +138,22 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 			// NOTE: We can have a mode=-1, 0, 1, 2.
 
 			if (column_statistics) {
-				// Set default value.
-
-				// TODO: Could be that this can only be used if `get.bind_data`, since `GetTable()` returns an optional pointer.
+				// Take the column name.
 				std::string column_name = "dummy_column";
 				if (get.GetTable()) {
 					column_name = get.GetTable()->GetColumn(LogicalIndex(it.first)).Name();
 				}
-				// const auto& column_name = get.GetTable()->GetColumn(LogicalIndex(it.first)).Name();
-				std::cerr << "Estimate: " << column_name << std::endl;
 
 				idx_t cardinality_with_filter = cardinality_after_filters;
 				if (starts_with(column_name, "parachute_")) {
 					if (use_parachute_stats) {
-						cardinality_with_filter = InspectParachuteFilter(parachute_stats, base_table_cardinality, it.first, *it.second, column_name, table_name, *column_statistics);
+						cardinality_with_filter = InspectParachuteFilter(parachute_stats, base_table_cardinality, it.first, *it.second, table_name, column_name, *column_statistics);
 						has_supported_filters = true;
 					} else {
 						// Don't even try to estimate.
 						// NOTE: We don't even set `has_supported_filters`.
+						// But enable `has_supported_filters`, to not activate the below default-selectivity case.
+						has_supported_filters = true;
 					}
 				} else {
 					cardinality_with_filter = InspectTableFilter(base_table_cardinality, it.first, *it.second, *column_statistics);
@@ -178,9 +173,7 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 
 		// bool has_equality_filter = (cardinality_after_filters != base_table_cardinality);
 		if ((!has_supported_filters) && (has_non_optional_filters)) {
-			cardinality_after_filters = MaxValue<idx_t>(
-			    LossyNumericCast<idx_t>(double(base_table_cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY),
-			    1U);
+			cardinality_after_filters = MaxValue<idx_t>(LossyNumericCast<idx_t>(double(base_table_cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY), 1U);
 		}
 		if (base_table_cardinality == 0) {
 			cardinality_after_filters = 0;
@@ -429,95 +422,10 @@ RelationStats RelationStatisticsHelper::ExtractEmptyResultStats(LogicalEmptyResu
 	return stats;
 }
 
-void trim_newline(std::string &str) {
-	if (!str.empty() && str.back() == '\n') {
-		str.pop_back();
-	}
-}
-
-ParachuteStats::ParachuteStats(std::string input_file, char delimiter) {
-	std::ifstream in(input_file);
-	assert (in.is_open());
-
-	std::string line;
-	while (std::getline(in, line)) {
-		std::istringstream ss(line);
-		std::string field;
-
-		std::cerr << "line=" << line << std::endl;
-		// Trim newline.
-		trim_newline(line);
-		if (line.empty()) {
-			return;
-		}
-
-		unsigned field_index = 0;
-		idx_t curr_num_bins, curr_bin_idx, curr_card;
-		std::string curr_table_name, curr_col_name;
-		while (std::getline(ss, field, delimiter)) {
-			if (field_index == 0) {
-				curr_num_bins = std::stoull(field);
-			} else if (field_index == 1) {
-				curr_table_name = field;
-			} else if (field_index == 2) {
-				curr_col_name = field;
-			} else if (field_index == 3) {
-				curr_bin_idx = std::stoull(field);
-			} else if (field_index == 4) {
-				curr_card = std::stoull(field);
-			}
-			++field_index;
-		}
-
-		// Resize to be sure we have enough.
-		assert (field_index == 5);
-		stats[curr_table_name][curr_col_name].resize(curr_num_bins);
-		assert (curr_bin_idx < curr_num_bins);
-		stats[curr_table_name][curr_col_name][curr_bin_idx] = curr_card;
-	}
-}
-
-bool ParachuteStats::has(std::string tn, std::string cn) {
-	if (stats.find(tn) == stats.end())
-		return false;
-	if (stats[tn].find(cn) == stats[tn].end())
-		return false;
-	return true;
-}
-
-double ParachuteStats::compute_selectivity(std::string tn, std::string cn, std::string op, idx_t bin_idx) {
-	assert(has(tn, cn));
-	
-	// Compute the sum of cardinalities in range [lb, ub[. NOTE: It's exclusive!
-	auto compute_range_card = [&](unsigned lb, unsigned ub) {
-		idx_t range_card = 0;
-		// NOTE: We really need `< ub` here, since `!=` might overflow.
-		for (unsigned index = lb; index < ub; ++index) {
-			range_card += stats[tn][cn][index];
-		}
-		return range_card;
-	};
-
-	if (op == "=") {
-		return 1.0 * compute_range_card(bin_idx, bin_idx + 1) / compute_range_card(0, stats[tn][cn].size());
-	} else if (op == "<") {
-		return 1.0 * compute_range_card(0, bin_idx) / compute_range_card(0, stats[tn][cn].size());		
-	} else if (op == "<=") {
-		return 1.0 * compute_range_card(0, bin_idx + 1) / compute_range_card(0, stats[tn][cn].size());			
-	} else if (op == ">") {
-		return 1.0 * compute_range_card(bin_idx + 1, stats[tn][cn].size()) / compute_range_card(0, stats[tn][cn].size());			
-	} else if (op == ">=") {
-		return 1.0 * compute_range_card(bin_idx, stats[tn][cn].size()) / compute_range_card(0, stats[tn][cn].size());				
-	}
-	std::cerr << "[compute_selectivity] We didn't find " << op << " in our cases!" << std::endl;
-	assert(0);
-	return 0.0;
-}
-
 idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& stats, idx_t cardinality, idx_t column_index,  TableFilter &filter, std::string tab_name, std::string col_name, BaseStatistics &base_stats) {
 	auto cardinality_after_filters = cardinality;
 	
-	std::cerr << "[InspectParachuteFilter] tn=" << tab_name << " cn=" << col_name << std::endl;
+	// std::cerr << "[InspectParachuteFilter] tn=" << tab_name << " cn=" << col_name << std::endl;
 
 	switch (filter.filter_type) {
 		case TableFilterType::CONJUNCTION_AND: {
@@ -534,8 +442,10 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& stats, id
 			auto &comparison_filter = filter.Cast<ConstantFilter>();
 			switch (comparison_filter.comparison_type) {
 				case ExpressionType::COMPARE_EQUAL: {
-					std::cerr << "filter =" << std::endl;
+					// std::cerr << "filter =" << std::endl;
 					auto val = comparison_filter.constant.GetValue<uint32_t>();
+
+					// std::cerr << "tab_name=" << tab_name << " col_name=" << col_name << std::endl;
 
 					// TODO: Don't return if we have multiple filters (later).
 					if (!stats.has(tab_name, col_name))
@@ -543,7 +453,7 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& stats, id
 
 					auto sel = stats.compute_selectivity(tab_name, col_name, "=", val);
 
-					std::cerr << "[" << col_name << " = " << val << "]: sel=" << sel << std::endl;
+					// std::cerr << "[" << col_name << " = " << val << "]: sel=" << sel << std::endl;
 
 					return static_cast<idx_t>(sel * cardinality_after_filters);
 				}
@@ -556,7 +466,7 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& stats, id
 
 					auto sel = stats.compute_selectivity(tab_name, col_name, "<", val);
 
-					std::cerr << "[" << col_name << " < " << val << "]: sel=" << sel << std::endl;
+					// std::cerr << "[" << col_name << " < " << val << "]: sel=" << sel << std::endl;
 
 					return static_cast<idx_t>(sel * cardinality_after_filters);
 				}
@@ -569,7 +479,7 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& stats, id
 
 					auto sel = stats.compute_selectivity(tab_name, col_name, "<=", val);
 
-					std::cerr << "[" << col_name << " <= " << val << "]: sel=" << sel << std::endl;
+					// std::cerr << "[" << col_name << " <= " << val << "]: sel=" << sel << std::endl;
 
 					return static_cast<idx_t>(sel * cardinality_after_filters);
 				}
@@ -582,7 +492,7 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& stats, id
 
 					auto sel = stats.compute_selectivity(tab_name, col_name, ">", val);
 
-					std::cerr << "[" << col_name << " > " << val << "]: sel=" << sel << std::endl;
+					// std::cerr << "[" << col_name << " > " << val << "]: sel=" << sel << std::endl;
 
 					return static_cast<idx_t>(sel * cardinality_after_filters);
 				}
@@ -595,18 +505,21 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& stats, id
 
 					auto sel = stats.compute_selectivity(tab_name, col_name, ">=", val);
 
-					std::cerr << "[" << col_name << " >= " << val << "]: sel=" << sel << std::endl;
+					// std::cerr << "[" << col_name << " >= " << val << "]: sel=" << sel << std::endl;
 
 					return static_cast<idx_t>(sel * cardinality_after_filters);
 				}
 				default: {
-					std::cerr << "here!" << std::endl;
+					// std::cerr << "here!" << std::endl;
+					assert(0);
 					return cardinality_after_filters;
 				}
 			}
 		}
-		default:
+		default: {
+			assert(0);
 			return cardinality_after_filters;
+		}
 	}
 
 	// Unreachable.

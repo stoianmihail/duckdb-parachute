@@ -26,6 +26,15 @@ class HTTPLogger;
 typedef std::function<unique_ptr<PhysicalResultCollector>(ClientContext &context, PreparedStatementData &data)>
     get_result_collector_t;
 
+class ParachuteStats {
+	std::unordered_map<std::string, std::unordered_map<std::string, std::vector<idx_t>>> data;
+public:
+	ParachuteStats() = default;
+	ParachuteStats(std::string input_file, char delimiter=',');
+	bool has(std::string table_name, std::string column_name);
+	double compute_selectivity(std::string table_name, std::string column_name, std::string op, idx_t bin_idx);
+};
+
 struct ClientConfig {
 	//! The home directory used by the system (if any)
 	string home_directory;
@@ -96,6 +105,8 @@ struct ClientConfig {
 	//! The file to read parachutes estimates from.
 	//! (empty = don't use estimates)
 	string parachute_stats_file;
+	//! The parachute stats.
+	ParachuteStats parachute_stats;
 	//! The number of rows to accumulate before flushing during a partitioned write
 	idx_t partitioned_write_flush_threshold = idx_t(1) << idx_t(19);
 	//! The amount of rows we can keep open before we close and flush them during a partitioned write
@@ -160,6 +171,10 @@ public:
 
 	bool AnyVerification() {
 		return query_verification_enabled || verify_external || verify_serializer || verify_fetch_row;
+	}
+
+	ParachuteStats GetParachuteStats() {
+		return parachute_stats;
 	}
 
 	void SetUserVariable(const string &name, Value value) {

@@ -9,11 +9,11 @@
 
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/logical_operator.hpp"
-#include <fstream>
 
 namespace duckdb {
 
 class CardinalityEstimator;
+class ParachuteStats;
 
 struct DistinctCount {
 	idx_t distinct_count;
@@ -39,15 +39,6 @@ struct RelationStats {
 
 	RelationStats() : cardinality(1), filter_strength(1), stats_initialized(false) {
 	}
-};
-
-class ParachuteStats {
-	std::unordered_map<std::string, std::unordered_map<std::string, std::vector<idx_t>>> stats;
-public:
-	ParachuteStats(std::string input_file, char delim=',');
-
-	bool has(std::string table_name, std::string column_name);
-	double compute_selectivity(std::string table_name, std::string column_name, std::string op, idx_t bin_idx);
 };
 
 class RelationStatisticsHelper {

@@ -52,6 +52,7 @@ class BufferedData;
 struct ClientData;
 class ClientContextState;
 class RegisteredStateManager;
+class ParachuteStats;
 
 struct PendingQueryParameters {
 	//! Prepared statement parameters (if any)

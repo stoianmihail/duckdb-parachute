@@ -30,6 +30,7 @@
 #include "duckdb/storage/storage_manager.hpp"
 #include "duckdb/logging/logger.hpp"
 #include "duckdb/logging/log_manager.hpp"
+#include <fstream>
 
 namespace duckdb {
 
@@ -1104,16 +1105,121 @@ bool OrderedAggregateThresholdSetting::OnLocalSet(ClientContext &context, const 
 //===----------------------------------------------------------------------===//
 // Parachute Cardinality Estimates Input File
 //===----------------------------------------------------------------------===//
+ParachuteStats::ParachuteStats(std::string input_file, char delimiter) {
+	// No input file? Then clear.
+	if (input_file.empty()) {
+		data.clear();
+		return;
+	}
+
+	std::ifstream in(input_file);
+	assert (in.is_open());
+
+	auto trim_newline = [&](std::string &str) {
+		if (!str.empty() && str.back() == '\n') {
+			str.pop_back();
+		}
+	};
+
+	std::string line;
+	while (std::getline(in, line)) {
+		std::istringstream ss(line);
+		std::string field;
+
+		// Trim newline.
+		trim_newline(line);
+		if (line.empty()) {
+			return;
+		}
+
+		unsigned field_index = 0;
+		idx_t curr_num_bins, curr_bin_idx, curr_card;
+		std::string curr_table_name, curr_col_name;
+		while (std::getline(ss, field, delimiter)) {
+			if (field_index == 0) {
+				curr_num_bins = std::stoull(field);
+			} else if (field_index == 1) {
+				curr_table_name = field;
+			} else if (field_index == 2) {
+				curr_col_name = field;
+			} else if (field_index == 3) {
+				curr_bin_idx = std::stoull(field);
+			} else if (field_index == 4) {
+				curr_card = std::stoull(field);
+			}
+			++field_index;
+		}
+
+		// Resize to be sure we have enough.
+		assert (field_index == 5);
+		data[curr_table_name][curr_col_name].resize(curr_num_bins);
+		assert (curr_bin_idx < curr_num_bins);
+		data[curr_table_name][curr_col_name][curr_bin_idx] = curr_card;
+	}
+
+	// for (auto& [tn, _] : data) {
+	// 	std::cerr << "\ntn=" << tn << std::endl;
+	// 	for (auto& [cn, _] : data[tn]) {
+	// 		std::cerr << "cn=" << cn << std::endl;
+	// 		for (unsigned index = 0, limit = data[tn][cn].size(); index != limit; ++index) {
+	// 			std::cerr << "index=" << index << " val: " << data[tn][cn][index] << std::endl;
+	// 		}
+	// 	}
+	// }
+}
+
+bool ParachuteStats::has(std::string tn, std::string cn) {
+	if (data.find(tn) == data.end())
+		return false;
+	if (data[tn].find(cn) == data[tn].end())
+		return false;
+	return true;
+}
+
+double ParachuteStats::compute_selectivity(std::string tn, std::string cn, std::string op, idx_t bin_idx) {
+	assert(has(tn, cn));
+	
+	// Compute the sum of cardinalities in range [lb, ub[. NOTE: It's exclusive!
+	auto compute_range_card = [&](unsigned lb, unsigned ub) {
+		// std::cerr << "tn=" << tn << " cn=" << cn << " -> " << "lb=" << lb << " ub=" << ub << std::endl;
+
+		idx_t range_card = 0;
+		// NOTE: We really need `< ub` here, since `!=` might overflow.
+		for (unsigned index = lb; index < ub; ++index) {
+			range_card += data[tn][cn][index];
+		}
+		return range_card;
+	};
+
+	if (op == "=") {
+		return 1.0 * compute_range_card(bin_idx, bin_idx + 1) / compute_range_card(0, data[tn][cn].size());
+	} else if (op == "<") {
+		return 1.0 * compute_range_card(0, bin_idx) / compute_range_card(0, data[tn][cn].size());		
+	} else if (op == "<=") {
+		return 1.0 * compute_range_card(0, bin_idx + 1) / compute_range_card(0, data[tn][cn].size());			
+	} else if (op == ">") {
+		return 1.0 * compute_range_card(bin_idx + 1, data[tn][cn].size()) / compute_range_card(0, data[tn][cn].size());			
+	} else if (op == ">=") {
+		return 1.0 * compute_range_card(bin_idx, data[tn][cn].size()) / compute_range_card(0, data[tn][cn].size());				
+	}
+	// std::cerr << "[compute_selectivity] We didn't find " << op << " in our cases!" << std::endl;
+	assert(0);
+	return 0.0;
+}
+
 void ParachuteStatsSetting::SetLocal(ClientContext &context, const Value &input) {
 	auto &config = ClientConfig::GetConfig(context);
 	auto parameter = input.ToString();
 	config.parachute_stats_file = parameter;
+	config.parachute_stats = ParachuteStats(config.parachute_stats_file);
 }
 
 void ParachuteStatsSetting::ResetLocal(ClientContext &context) {
 	ClientConfig::GetConfig(context).parachute_stats_file = ClientConfig().parachute_stats_file;
+	ClientConfig::GetConfig(context).parachute_stats = ParachuteStats(ClientConfig::GetConfig(context).parachute_stats_file);
 }
 
+// TODO: We could also serialize the object somehow and put it as file.
 Value ParachuteStatsSetting::GetSetting(const ClientContext &context) {
 	auto &config = ClientConfig::GetConfig(context);
 	return Value(config.parachute_stats_file);
