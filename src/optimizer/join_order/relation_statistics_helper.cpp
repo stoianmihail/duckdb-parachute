@@ -146,14 +146,11 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 
 				idx_t cardinality_with_filter = cardinality_after_filters;
 				if (starts_with(column_name, "parachute_")) {
+					// NOTE: We don't set `has_supported_filters`, such that the previous case can run through.
 					if (use_parachute_stats) {
 						cardinality_with_filter = InspectParachuteFilter(parachute_stats, base_table_cardinality, it.first, *it.second, table_name, column_name, *column_statistics);
-						has_supported_filters = true;
 					} else {
 						// Don't even try to estimate.
-						// NOTE: We don't even set `has_supported_filters`.
-						// But enable `has_supported_filters`, to not activate the below default-selectivity case.
-						has_supported_filters = true;
 					}
 				} else {
 					cardinality_with_filter = InspectTableFilter(base_table_cardinality, it.first, *it.second, *column_statistics);
@@ -422,10 +419,28 @@ RelationStats RelationStatisticsHelper::ExtractEmptyResultStats(LogicalEmptyResu
 	return stats;
 }
 
+
+std::string TableFilterTypeToString(TableFilterType type) {
+	switch (type) {
+		case TableFilterType::CONSTANT_COMPARISON: return "CONSTANT_COMPARISON";
+		case TableFilterType::IS_NULL: return "IS_NULL";
+		case TableFilterType::IS_NOT_NULL: return "IS_NOT_NULL";
+		case TableFilterType::CONJUNCTION_OR: return "CONJUNCTION_OR";
+		case TableFilterType::CONJUNCTION_AND: return "CONJUNCTION_AND";
+		case TableFilterType::STRUCT_EXTRACT: return "STRUCT_EXTRACT";
+		case TableFilterType::OPTIONAL_FILTER: return "OPTIONAL_FILTER";
+		case TableFilterType::IN_FILTER: return "IN_FILTER";
+		case TableFilterType::DYNAMIC_FILTER: return "DYNAMIC_FILTER";
+		default: return "UNKNOWN";
+	}
+}
+
 idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& stats, idx_t cardinality, idx_t column_index,  TableFilter &filter, std::string tab_name, std::string col_name, BaseStatistics &base_stats) {
 	auto cardinality_after_filters = cardinality;
 	
 	// std::cerr << "[InspectParachuteFilter] tn=" << tab_name << " cn=" << col_name << std::endl;
+
+	std::cerr << "filter_type=" << TableFilterTypeToString(filter.filter_type) << std::endl;
 
 	switch (filter.filter_type) {
 		case TableFilterType::CONJUNCTION_AND: {
@@ -509,14 +524,40 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& stats, id
 
 					return static_cast<idx_t>(sel * cardinality_after_filters);
 				}
+				case ExpressionType::COMPARE_BETWEEN: {
+					std::cerr << "between!" << std::endl;
+					// auto &between = filter.Cast<BoundBetweenExpression>();
+					// assert(between.lower->GetExpressionType() == ExpressionType::VALUE_CONSTANT);
+					// assert(between.upper->GetExpressionType() == ExpressionType::VALUE_CONSTANT);
+
+					// auto lb = between.lower->Cast<BoundConstantExpression>().value;
+					// // low_value = between.lower->Cast<BoundConstantExpression>().value;
+					// // low_comparison_type = between.lower_inclusive ? ExpressionType::COMPARE_GREATERTHANOREQUALTO : ExpressionType::COMPARE_GREATERTHAN;
+					// auto ub = (between.upper->Cast<BoundConstantExpression>()).value;
+					// // high_comparison_type = between.upper_inclusive ? ExpressionType::COMPARE_LESSTHANOREQUALTO : ExpressionType::COMPARE_LESSTHAN;
+
+					// std::cerr << "lb=" << lb << " ub=" << ub << std::endl;
+
+					// if (!stats.has(tab_name, col_name))
+					// 	return cardinality_after_filters;
+
+
+					auto sel = 0.2;//stats.compute_selectivity(tab_name, col_name, ">=", val);
+
+					// std::cerr << "[" << col_name << " >= " << val << "]: sel=" << sel << std::endl;
+
+					return static_cast<idx_t>(sel * cardinality_after_filters);
+					// auto sel = stats.compute_selectivity(tab_name, col_name, 'between', low_value, high_value);
+				}
 				default: {
-					// std::cerr << "here!" << std::endl;
+					std::cerr << "here!" << std::endl;
 					assert(0);
 					return cardinality_after_filters;
 				}
 			}
 		}
 		default: {
+			std::cerr << "or here????" << std::endl;
 			assert(0);
 			return cardinality_after_filters;
 		}
