@@ -427,6 +427,7 @@ void ExtractConjunctionAnd(ConjunctionAndFilter &filter, BoundColumnRefExpressio
 	// Get the combined unique values of the IN filters.
 	value_set_t unique_values;
 	for (idx_t filter_idx = 0; filter_idx < in_filters.size(); filter_idx++) {
+		std::cerr << "[ExtractConjunctionAnd] filter_idx=" << filter_idx << std::endl;
 		auto &in_filter = in_filters[filter_idx].get();
 		for (idx_t value_idx = 0; value_idx < in_filter.values.size(); value_idx++) {
 			auto &value = in_filter.values[value_idx];

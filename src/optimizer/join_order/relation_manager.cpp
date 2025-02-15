@@ -10,6 +10,8 @@
 #include "duckdb/planner/expression_iterator.hpp"
 #include "duckdb/planner/operator/list.hpp"
 
+#include <iostream>
+
 namespace duckdb {
 
 const vector<RelationStats> RelationManager::GetRelationStats() {
@@ -176,6 +178,7 @@ static bool HasNonReorderableChild(LogicalOperator &op) {
 }
 
 static void ModifyStatsIfLimit(optional_ptr<LogicalOperator> limit_op, RelationStats &stats) {
+	std::cerr << "[ModifyStatsIfLimit]" << "nu cred" << std::endl;
 	if (!limit_op) {
 		return;
 	}
@@ -191,10 +194,16 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 	optional_ptr<LogicalOperator> op = &input_op;
 	vector<reference<LogicalOperator>> datasource_filters;
 	optional_ptr<LogicalOperator> limit_op = nullptr;
+
+	std::cerr << "\n\n[RelationManager::ExtractJoinRelations] ENTER HERE" << std::endl;
+
 	// pass through single child operators
 	while (op->children.size() == 1 && !OperatorNeedsRelation(op->type)) {
 		if (op->type == LogicalOperatorType::LOGICAL_FILTER) {
 			if (HasNonReorderableChild(*op)) {
+				std::cerr << "> pushes here???????" << std::endl;
+				std::cerr << op->GetName() << std::endl;
+				std::cerr << op->ToString() << std::endl;
 				datasource_filters.push_back(*op);
 			}
 			filter_operators.push_back(*op);
@@ -234,6 +243,8 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 			children_stats.push_back(stats);
 		}
 
+		std::cerr << "==== if(non_reorderable_operation)" << "aici" << std::endl;
+
 		auto combined_stats = RelationStatisticsHelper::CombineStatsOfNonReorderableOperator(*op, children_stats);
 		op->SetEstimatedCardinality(combined_stats.cardinality);
 		if (!datasource_filters.empty()) {
@@ -243,6 +254,8 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 		AddRelation(input_op, parent, combined_stats);
 		return true;
 	}
+
+	std::cerr << "^^^^ before switch" << std::endl;
 
 	switch (op->type) {
 	case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
@@ -352,9 +365,60 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 		// if there is another logical filter that could not be pushed down into the
 		// table scan, apply another selectivity.
 		get.SetEstimatedCardinality(stats.cardinality);
+
+		std::cerr << "[LogicalOperatorType::LOGICAL_GET] here" << std::endl;
+
+		auto count_token = [&](const string& text, const string token) {
+			size_t ret = 0;
+			size_t loc = text.find(token);
+			while (loc != string::npos) {
+				++ret;
+				loc = text.find(token, loc + 1);
+			}
+			return ret;
+		};
+
 		if (!datasource_filters.empty()) {
-			stats.cardinality =
-			    (idx_t)MaxValue(double(stats.cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY, (double)1);
+			std::cerr << "wowwwww" << std::endl;
+			std::cerr << "datasource_filters.size=" << datasource_filters.size() << std::endl;
+
+			// TODO: Only use the default selectivity if we have a non-parachute column only.
+			
+			bool has_non_parachute = false;
+			if (datasource_filters.size() == 1) {
+				for (const auto& filter : datasource_filters) {
+					LogicalOperator& op = filter.get();
+					std::cerr << op.GetName() << std::endl;
+					assert(op.GetName() == "FILTER");
+
+					std::cerr << op.expressions.size() << std::endl;
+					for (const auto& expr : op.expressions) {
+						// Take the string representatino.
+						auto expr_str = expr->ToString();
+
+						// Count `AND` and `OR`.
+						auto sep_count = count_token(expr_str, " AND ") + count_token(expr_str, " OR ");
+						
+						// Count the number of parachute columns.
+						auto parachute_count = count_token(expr_str, "parachute_");
+
+						// Full house?
+						if (sep_count == parachute_count - 1) {
+							// noop
+						} else {
+							has_non_parachute = true;
+						}
+					}
+				}
+			} else {
+				assert(0);
+			}
+
+			// Only estimate if we have a non-parachute column.
+			// TODO: Change this when we have parachute stats.
+			if (has_non_parachute) {
+				stats.cardinality = (idx_t)MaxValue(double(stats.cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY, (double)1);
+			}
 		}
 		ModifyStatsIfLimit(limit_op.get(), stats);
 		AddRelation(input_op, parent, stats);

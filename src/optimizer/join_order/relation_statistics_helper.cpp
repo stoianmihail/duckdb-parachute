@@ -88,6 +88,12 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 	for (idx_t i = 0; i < column_ids.size(); i++) {
 		auto column_id = column_ids[i].GetPrimaryIndex();
 		bool have_distinct_count_stats = false;
+
+		// Skip if parachute column.
+		if (starts_with(get.names.at(column_id), "parachute_")) {
+			continue;
+		}
+
 		if (get.function.statistics) {
 			column_statistics = get.function.statistics(context, get.bind_data.get(), column_id);
 			if (column_statistics && have_catalog_table_statistics) {
@@ -120,9 +126,12 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 	auto parachute_stats_file = ClientConfig::GetSetting<ParachuteStatsSetting>(context);
 	auto parachute_stats = ClientConfig::GetConfig(context).GetParachuteStats();
 	bool use_parachute_stats = (!parachute_stats_file.empty());
+	unsigned parachute_filter_count = 0;
+
+	std::cerr << "\ntable_name=" << table_name << std::endl;
 
 	if (!get.table_filters.filters.empty()) {
-		bool has_supported_filters = false;
+		bool has_supported_filter = false;
 		column_statistics = nullptr;
 		bool has_non_optional_filters = false;
 		for (auto &it : get.table_filters.filters) {
@@ -137,41 +146,67 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 			// NOTE: After: After the actual filters have been applied.
 			// NOTE: We can have a mode=-1, 0, 1, 2.
 
-			if (column_statistics) {
-				// Take the column name.
-				std::string column_name = "dummy_column";
-				if (get.GetTable()) {
-					column_name = get.GetTable()->GetColumn(LogicalIndex(it.first)).Name();
-				}
+			// Take the column name.
+			std::string column_name = "dummy_column";
+			if (get.GetTable()) {
+				column_name = get.GetTable()->GetColumn(LogicalIndex(it.first)).Name();
+			}
+			auto is_parachute_col = starts_with(column_name, "parachute_");
 
+			std::cerr << "--- column_name=" << column_name << std::endl;
+
+			if (column_statistics) {
 				idx_t cardinality_with_filter = cardinality_after_filters;
-				if (starts_with(column_name, "parachute_")) {
-					// NOTE: We don't set `has_supported_filters`, such that the previous case can run through.
+				if (is_parachute_col) {
 					if (use_parachute_stats) {
 						cardinality_with_filter = InspectParachuteFilter(parachute_stats, base_table_cardinality, it.first, *it.second, table_name, column_name, *column_statistics);
 					} else {
 						// Don't even try to estimate.
 					}
+
+					// Still increase the number of parachute filters.
+					++parachute_filter_count;
 				} else {
-					cardinality_with_filter = InspectTableFilter(base_table_cardinality, it.first, *it.second, *column_statistics);
-					has_supported_filters = true;
+					cardinality_with_filter = InspectTableFilter(base_table_cardinality, it.first, *it.second, *column_statistics, has_supported_filter);
 				}
 				cardinality_after_filters = MinValue(cardinality_after_filters, cardinality_with_filter);
 			}
 
 			if (it.second->filter_type != TableFilterType::OPTIONAL_FILTER) {
-				has_non_optional_filters = true;
+				if (is_parachute_col) {
+					// TODO
+				} else {
+					has_non_optional_filters = true;	
+				}
 			}
 		}
+
+		std::cerr << "has_supported_filter=" << has_supported_filter << " has_non_optional_filter=" << has_non_optional_filters << std::endl;
+		std::cerr << "parachute_filter_count=" << parachute_filter_count << " filters.size()=" << get.table_filters.filters.size() << std::endl;
+
 		// if the above code didn't find an equality filter (i.e country_code = "[us]")
 		// and there are other table filters (i.e cost > 50), use default selectivity.
-		// TODO: This is wrong, since the cardinality _can_ still be the base one.
-		// TODO: Insert a flag to check for this.
-
-		// bool has_equality_filter = (cardinality_after_filters != base_table_cardinality);
-		if ((!has_supported_filters) && (has_non_optional_filters)) {
-			cardinality_after_filters = MaxValue<idx_t>(LossyNumericCast<idx_t>(double(base_table_cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY), 1U);
+		// TODO: This is wrong in DuckDB v1.2.0, since the cardinality _can_ still be the base one.
+		bool has_equality_filter = (cardinality_after_filters != base_table_cardinality);
+		if ((!use_parachute_stats) && (!parachute_filter_count)) {
+			if ((!has_equality_filter) && (has_non_optional_filters)) {
+				// DuckDB v1.2.0.
+				cardinality_after_filters = MaxValue<idx_t>(LossyNumericCast<idx_t>(double(base_table_cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY), 1U);
+			}
+		} else if ((!use_parachute_stats) && (parachute_filter_count)) {
+			if (parachute_filter_count == get.table_filters.filters.size()) {
+				// noop.
+			} else {
+				if ((!has_equality_filter) && (has_non_optional_filters)) {
+					// DuckDB v1.2.0.
+					cardinality_after_filters = MaxValue<idx_t>(LossyNumericCast<idx_t>(double(base_table_cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY), 1U);
+				}
+			}
+		} else {
+			// TODO.
+			assert(0);
 		}
+
 		if (base_table_cardinality == 0) {
 			cardinality_after_filters = 0;
 		}
@@ -248,6 +283,13 @@ void RelationStatisticsHelper::CopyRelationStats(RelationStats &to, const Relati
 	to.cardinality = from.cardinality;
 	to.table_name = from.table_name;
 	to.stats_initialized = from.stats_initialized;
+}
+
+bool has_pattern_after_dot2(std::string text, std::string pattern) {
+	size_t dot_pos = text.find('.');
+	if (dot_pos != std::string::npos)
+		return text.substr(dot_pos + 1, pattern.size()) == pattern;
+	return false;
 }
 
 RelationStats RelationStatisticsHelper::CombineStatsOfReorderableOperator(vector<ColumnBinding> &bindings,
@@ -568,14 +610,14 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& stats, id
 }
 
 idx_t RelationStatisticsHelper::InspectTableFilter(idx_t cardinality, idx_t column_index, TableFilter &filter,
-                                                   BaseStatistics &base_stats) {
+                                                   BaseStatistics &base_stats, bool &has_supported_filter) {
 	auto cardinality_after_filters = cardinality;
 	switch (filter.filter_type) {
 	case TableFilterType::CONJUNCTION_AND: {
 		auto &and_filter = filter.Cast<ConjunctionAndFilter>();
 		for (auto &child_filter : and_filter.child_filters) {
 			cardinality_after_filters = MinValue(
-			    cardinality_after_filters, InspectTableFilter(cardinality, column_index, *child_filter, base_stats));
+			    cardinality_after_filters, InspectTableFilter(cardinality, column_index, *child_filter, base_stats, has_supported_filter));
 		}
 		return cardinality_after_filters;
 	}
@@ -584,12 +626,17 @@ idx_t RelationStatisticsHelper::InspectTableFilter(idx_t cardinality, idx_t colu
 		if (comparison_filter.comparison_type != ExpressionType::COMPARE_EQUAL) {
 			return cardinality_after_filters;
 		}
+
+		// Mark as supported.
+		has_supported_filter = true;
+
 		auto column_count = base_stats.GetDistinctCount();
 		// column_count = 0 when there is no column count (i.e parquet scans)
 		if (column_count > 0) {
 			// we want the ceil of cardinality/column_count. We also want to avoid compiler errors
 			cardinality_after_filters = (cardinality + column_count - 1) / column_count;
 		}
+		// TODO: Shouldn't here be zero?
 		return cardinality_after_filters;
 	}
 	default:

@@ -46,8 +46,7 @@ public:
 	static constexpr double DEFAULT_SELECTIVITY = 0.2;
 
 public:
-	static idx_t InspectTableFilter(idx_t cardinality, idx_t column_index, TableFilter &filter,
-	                                BaseStatistics &base_stats);
+	static idx_t InspectTableFilter(idx_t cardinality, idx_t column_index, TableFilter &filter, BaseStatistics &base_stats,  bool &has_supported_filter);
 	static idx_t InspectParachuteFilter(ParachuteStats& stats, idx_t cardinality, idx_t column_index, TableFilter &filter, std::string column_name, std::string table_name, BaseStatistics &base_stats);
 
 	//	static idx_t InspectConjunctionOR(idx_t cardinality, idx_t column_index, ConjunctionOrFilter &filter,
