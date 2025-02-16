@@ -128,7 +128,7 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 	bool use_parachute_stats = (!parachute_stats_file.empty());
 	unsigned parachute_filter_count = 0;
 
-	std::cerr << "\ntable_name=" << table_name << std::endl;
+	// std::cerr << "\ntable_name=" << table_name << std::endl;
 
 	if (!get.table_filters.filters.empty()) {
 		bool has_supported_filter = false;
@@ -153,7 +153,7 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 			}
 			auto is_parachute_col = starts_with(column_name, "parachute_");
 
-			std::cerr << "--- column_name=" << column_name << std::endl;
+			// std::cerr << "--- column_name=" << column_name << std::endl;
 
 			if (column_statistics) {
 				idx_t cardinality_with_filter = cardinality_after_filters;
@@ -181,8 +181,8 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 			}
 		}
 
-		std::cerr << "has_supported_filter=" << has_supported_filter << " has_non_optional_filter=" << has_non_optional_filters << std::endl;
-		std::cerr << "parachute_filter_count=" << parachute_filter_count << " filters.size()=" << get.table_filters.filters.size() << std::endl;
+		// std::cerr << "has_supported_filter=" << has_supported_filter << " has_non_optional_filter=" << has_non_optional_filters << std::endl;
+		// std::cerr << "parachute_filter_count=" << parachute_filter_count << " filters.size()=" << get.table_filters.filters.size() << std::endl;
 
 		// if the above code didn't find an equality filter (i.e country_code = "[us]")
 		// and there are other table filters (i.e cost > 50), use default selectivity.
@@ -283,13 +283,6 @@ void RelationStatisticsHelper::CopyRelationStats(RelationStats &to, const Relati
 	to.cardinality = from.cardinality;
 	to.table_name = from.table_name;
 	to.stats_initialized = from.stats_initialized;
-}
-
-bool has_pattern_after_dot2(std::string text, std::string pattern) {
-	size_t dot_pos = text.find('.');
-	if (dot_pos != std::string::npos)
-		return text.substr(dot_pos + 1, pattern.size()) == pattern;
-	return false;
 }
 
 RelationStats RelationStatisticsHelper::CombineStatsOfReorderableOperator(vector<ColumnBinding> &bindings,

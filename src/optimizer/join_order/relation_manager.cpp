@@ -178,7 +178,6 @@ static bool HasNonReorderableChild(LogicalOperator &op) {
 }
 
 static void ModifyStatsIfLimit(optional_ptr<LogicalOperator> limit_op, RelationStats &stats) {
-	std::cerr << "[ModifyStatsIfLimit]" << "nu cred" << std::endl;
 	if (!limit_op) {
 		return;
 	}
@@ -195,15 +194,10 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 	vector<reference<LogicalOperator>> datasource_filters;
 	optional_ptr<LogicalOperator> limit_op = nullptr;
 
-	std::cerr << "\n\n[RelationManager::ExtractJoinRelations] ENTER HERE" << std::endl;
-
 	// pass through single child operators
 	while (op->children.size() == 1 && !OperatorNeedsRelation(op->type)) {
 		if (op->type == LogicalOperatorType::LOGICAL_FILTER) {
 			if (HasNonReorderableChild(*op)) {
-				std::cerr << "> pushes here???????" << std::endl;
-				std::cerr << op->GetName() << std::endl;
-				std::cerr << op->ToString() << std::endl;
 				datasource_filters.push_back(*op);
 			}
 			filter_operators.push_back(*op);
@@ -243,8 +237,6 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 			children_stats.push_back(stats);
 		}
 
-		std::cerr << "==== if(non_reorderable_operation)" << "aici" << std::endl;
-
 		auto combined_stats = RelationStatisticsHelper::CombineStatsOfNonReorderableOperator(*op, children_stats);
 		op->SetEstimatedCardinality(combined_stats.cardinality);
 		if (!datasource_filters.empty()) {
@@ -254,8 +246,6 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 		AddRelation(input_op, parent, combined_stats);
 		return true;
 	}
-
-	std::cerr << "^^^^ before switch" << std::endl;
 
 	switch (op->type) {
 	case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
@@ -366,8 +356,6 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 		// table scan, apply another selectivity.
 		get.SetEstimatedCardinality(stats.cardinality);
 
-		std::cerr << "[LogicalOperatorType::LOGICAL_GET] here" << std::endl;
-
 		auto count_token = [&](const string& text, const string token) {
 			size_t ret = 0;
 			size_t loc = text.find(token);
@@ -379,19 +367,13 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 		};
 
 		if (!datasource_filters.empty()) {
-			std::cerr << "wowwwww" << std::endl;
-			std::cerr << "datasource_filters.size=" << datasource_filters.size() << std::endl;
-
-			// TODO: Only use the default selectivity if we have a non-parachute column only.
-			
+			// TODO: Only use the default selectivity if we have a non-parachute column only.			
 			bool has_non_parachute = false;
 			if (datasource_filters.size() == 1) {
 				for (const auto& filter : datasource_filters) {
 					LogicalOperator& op = filter.get();
-					std::cerr << op.GetName() << std::endl;
 					assert(op.GetName() == "FILTER");
 
-					std::cerr << op.expressions.size() << std::endl;
 					for (const auto& expr : op.expressions) {
 						// Take the string representatino.
 						auto expr_str = expr->ToString();

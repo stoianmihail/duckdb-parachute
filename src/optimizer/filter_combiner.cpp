@@ -486,7 +486,6 @@ TableFilterSet FilterCombiner::GenerateTableScanFilters(const vector<ColumnIndex
 	TableFilterSet table_filters;
 	//! First, we figure the filters that have constant expressions that we can push down to the table scan
 	for (auto &constant_value : constant_values) {
-		std::cerr << "[FilterCombiner::GenerateTableScanFilters]" << " inside" << std::endl;
 		if (!constant_value.second.empty()) {
 			auto filter_exp = equivalence_map.end();
 			if ((constant_value.second[0].comparison_type == ExpressionType::COMPARE_EQUAL ||
@@ -527,7 +526,6 @@ TableFilterSet FilterCombiner::GenerateTableScanFilters(const vector<ColumnIndex
 	}
 	//! Here we look for LIKE or IN filters
 	for (idx_t rem_fil_idx = 0; rem_fil_idx < remaining_filters.size(); rem_fil_idx++) {
-		std::cerr << "[FilterCombiner::GenerateTableScanFilters] comes here" << std::endl;
 		auto &remaining_filter = remaining_filters[rem_fil_idx];
 		if (remaining_filter->GetExpressionClass() == ExpressionClass::BOUND_FUNCTION) {
 			auto &func = remaining_filter->Cast<BoundFunctionExpression>();
@@ -593,7 +591,6 @@ TableFilterSet FilterCombiner::GenerateTableScanFilters(const vector<ColumnIndex
 				}
 			}
 		} else if (remaining_filter->GetExpressionType() == ExpressionType::COMPARE_IN) {
-			std::cerr << "[COMPARE_IN]" << std::endl;
 			auto &func = remaining_filter->Cast<BoundOperatorExpression>();
 			D_ASSERT(func.children.size() > 1);
 			if (func.children[0]->GetExpressionClass() != ExpressionClass::BOUND_COLUMN_REF) {
