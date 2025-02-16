@@ -1219,7 +1219,6 @@ void ParachuteStatsSetting::ResetLocal(ClientContext &context) {
 	ClientConfig::GetConfig(context).parachute_stats = ParachuteStats(ClientConfig::GetConfig(context).parachute_stats_file);
 }
 
-// TODO: We could also serialize the object somehow and put it as file.
 Value ParachuteStatsSetting::GetSetting(const ClientContext &context) {
 	auto &config = ClientConfig::GetConfig(context);
 	return Value(config.parachute_stats_file);
