@@ -89,8 +89,8 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 		auto column_id = column_ids[i].GetPrimaryIndex();
 		bool have_distinct_count_stats = false;
 
-		// Skip if parachute column.
-		if (starts_with(get.names.at(column_id), "parachute_")) {
+		// Skip if parachute column (and if `column_id` is valid, of course).
+		if ((column_id < get.names.size()) && (starts_with(get.names.at(column_id), "parachute_"))) {
 			continue;
 		}
 
