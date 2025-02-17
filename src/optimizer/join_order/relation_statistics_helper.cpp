@@ -83,15 +83,22 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 		have_catalog_table_statistics = true;
 	}
 
+	// Check if we are allowed to use parachutes or not.
+	auto parachute_stats_file = ClientConfig::GetSetting<ParachuteStatsSetting>(context);
+	bool use_parachute = (!parachute_stats_file.empty());
+
 	// first push back basic distinct counts for each column (if we have them).
 	auto &column_ids = get.GetColumnIds();
 	for (idx_t i = 0; i < column_ids.size(); i++) {
 		auto column_id = column_ids[i].GetPrimaryIndex();
 		bool have_distinct_count_stats = false;
 
-		// Skip if parachute column (and if `column_id` is valid, of course).
-		if ((column_id < get.names.size()) && (starts_with(get.names.at(column_id), "parachute_"))) {
-			continue;
+		// Should we disallow parachutes?
+		if (!use_parachute) {
+			// Skip if parachute column (and if `column_id` is valid, of course).
+			if ((column_id < get.names.size()) && (starts_with(get.names.at(column_id), "parachute_"))) {
+				continue;
+			}
 		}
 
 		if (get.function.statistics) {
@@ -122,10 +129,11 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 	if (get.GetTable()) {
 		table_name = get.GetTable()->name;
 	}
-	
-	auto parachute_stats_file = ClientConfig::GetSetting<ParachuteStatsSetting>(context);
+
+	// Get the parachute stats.	
 	auto parachute_stats = ClientConfig::GetConfig(context).GetParachuteStats();
-	bool use_parachute_stats = (!parachute_stats_file.empty());
+
+	// Count the number of parachute filters.
 	unsigned parachute_filter_count = 0;
 
 	// std::cerr << "\ntable_name=" << table_name << std::endl;
@@ -139,33 +147,35 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 				column_statistics = get.function.statistics(context, get.bind_data.get(), it.first);
 			}
 
-			// NOTE: There are two options.
-			// NOTE: We can either estimate before, during or after.
-			// NOTE: Before: Estimate the table size first with parachutes.
-			// NOTE: During: With the actual filters (more natural).
-			// NOTE: After: After the actual filters have been applied.
-			// NOTE: We can have a mode=-1, 0, 1, 2.
-
 			// Take the column name.
 			std::string column_name = "dummy_column";
 			if (get.GetTable()) {
 				column_name = get.GetTable()->GetColumn(LogicalIndex(it.first)).Name();
 			}
-			auto is_parachute_col = starts_with(column_name, "parachute_");
 
 			// std::cerr << "--- column_name=" << column_name << std::endl;
+
+			// Check if it's a parachute column.
+			auto is_parachute_col = starts_with(column_name, "parachute_");
+
+			// Increment the number of parachute columns (if the case).
+			parachute_filter_count += is_parachute_col;
 
 			if (column_statistics) {
 				idx_t cardinality_with_filter = cardinality_after_filters;
 				if (is_parachute_col) {
-					if (use_parachute_stats) {
-						cardinality_with_filter = InspectParachuteFilter(parachute_stats, base_table_cardinality, it.first, *it.second, table_name, column_name, *column_statistics);
+					if (use_parachute) {
+						// Is the data empty? Then we have to use the default optimized.
+						if (parachute_stats.empty()) {
+							// Use the default estimation from DuckDB v1.2.0 (see also below).
+							cardinality_with_filter = InspectTableFilter(base_table_cardinality, it.first, *it.second, *column_statistics, has_supported_filter);
+						} else {
+							// Otherwise, use our estimates.
+							cardinality_with_filter = InspectParachuteFilter(parachute_stats, base_table_cardinality, it.first, *it.second, table_name, column_name, *column_statistics);
+						}
 					} else {
 						// Don't even try to estimate.
 					}
-
-					// Still increase the number of parachute filters.
-					++parachute_filter_count;
 				} else {
 					cardinality_with_filter = InspectTableFilter(base_table_cardinality, it.first, *it.second, *column_statistics, has_supported_filter);
 				}
@@ -174,7 +184,12 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 
 			if (it.second->filter_type != TableFilterType::OPTIONAL_FILTER) {
 				if (is_parachute_col) {
-					// TODO
+					// Are we allowed to use parachutes?
+					if (use_parachute) {
+						has_non_optional_filters = true;
+					} else {
+						// noop.
+					}
 				} else {
 					has_non_optional_filters = true;	
 				}
@@ -188,12 +203,12 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 		// and there are other table filters (i.e cost > 50), use default selectivity.
 		// TODO: This is wrong in DuckDB v1.2.0, since the cardinality _can_ still be the base one.
 		bool has_equality_filter = (cardinality_after_filters != base_table_cardinality);
-		if ((!use_parachute_stats) && (!parachute_filter_count)) {
+		if ((!use_parachute) && (!parachute_filter_count)) {
 			if ((!has_equality_filter) && (has_non_optional_filters)) {
 				// DuckDB v1.2.0.
 				cardinality_after_filters = MaxValue<idx_t>(LossyNumericCast<idx_t>(double(base_table_cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY), 1U);
 			}
-		} else if ((!use_parachute_stats) && (parachute_filter_count)) {
+		} else if ((!use_parachute) && (parachute_filter_count)) {
 			if (parachute_filter_count == get.table_filters.filters.size()) {
 				// noop.
 			} else {
@@ -201,6 +216,12 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 					// DuckDB v1.2.0.
 					cardinality_after_filters = MaxValue<idx_t>(LossyNumericCast<idx_t>(double(base_table_cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY), 1U);
 				}
+			}
+		} else if ((use_parachute) && (parachute_stats.empty())) {
+			// We are allowed to use parachutes, but the stats are empty, i.e., we use the default DuckDB optimizer.
+			if ((!has_equality_filter) && (has_non_optional_filters)) {
+				// DuckDB v1.2.0.
+				cardinality_after_filters = MaxValue<idx_t>(LossyNumericCast<idx_t>(double(base_table_cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY), 1U);
 			}
 		} else {
 			// TODO.

@@ -1112,8 +1112,15 @@ ParachuteStats::ParachuteStats(std::string input_file, char delimiter) {
 		return;
 	}
 
+	// Corner case. We don't want to read the parachute stats, but just make sure that the default optimizer is enabled.
+	// This means that we don't skip the parachute columns from the scan.
+	if (input_file == "fake") {
+		data.clear();
+		return;
+	}
+
 	std::ifstream in(input_file);
-	assert (in.is_open());
+	assert(in.is_open());
 
 	auto trim_newline = [&](std::string &str) {
 		if (!str.empty() && str.back() == '\n') {
@@ -1168,15 +1175,19 @@ ParachuteStats::ParachuteStats(std::string input_file, char delimiter) {
 	// }
 }
 
-bool ParachuteStats::has(std::string tn, std::string cn) {
+bool ParachuteStats::empty() const {
+	return data.empty();
+}
+
+bool ParachuteStats::has(std::string tn, std::string cn) const {
 	if (data.find(tn) == data.end())
 		return false;
-	if (data[tn].find(cn) == data[tn].end())
+	if (data.at(tn).find(cn) == data.at(tn).end())
 		return false;
 	return true;
 }
 
-double ParachuteStats::compute_selectivity(std::string tn, std::string cn, std::string op, idx_t bin_idx) {
+double ParachuteStats::compute_selectivity(std::string tn, std::string cn, std::string op, idx_t bin_idx) const {
 	assert(has(tn, cn));
 	
 	// Compute the sum of cardinalities in range [lb, ub[. NOTE: It's exclusive!
@@ -1186,21 +1197,21 @@ double ParachuteStats::compute_selectivity(std::string tn, std::string cn, std::
 		idx_t range_card = 0;
 		// NOTE: We really need `< ub` here, since `!=` might overflow.
 		for (unsigned index = lb; index < ub; ++index) {
-			range_card += data[tn][cn][index];
+			range_card += data.at(tn).at(cn)[index];
 		}
 		return range_card;
 	};
 
 	if (op == "=") {
-		return 1.0 * compute_range_card(bin_idx, bin_idx + 1) / compute_range_card(0, data[tn][cn].size());
+		return 1.0 * compute_range_card(bin_idx, bin_idx + 1) / compute_range_card(0, data.at(tn).at(cn).size());
 	} else if (op == "<") {
-		return 1.0 * compute_range_card(0, bin_idx) / compute_range_card(0, data[tn][cn].size());		
+		return 1.0 * compute_range_card(0, bin_idx) / compute_range_card(0, data.at(tn).at(cn).size());		
 	} else if (op == "<=") {
-		return 1.0 * compute_range_card(0, bin_idx + 1) / compute_range_card(0, data[tn][cn].size());			
+		return 1.0 * compute_range_card(0, bin_idx + 1) / compute_range_card(0, data.at(tn).at(cn).size());			
 	} else if (op == ">") {
-		return 1.0 * compute_range_card(bin_idx + 1, data[tn][cn].size()) / compute_range_card(0, data[tn][cn].size());			
+		return 1.0 * compute_range_card(bin_idx + 1, data.at(tn).at(cn).size()) / compute_range_card(0, data.at(tn).at(cn).size());			
 	} else if (op == ">=") {
-		return 1.0 * compute_range_card(bin_idx, data[tn][cn].size()) / compute_range_card(0, data[tn][cn].size());				
+		return 1.0 * compute_range_card(bin_idx, data.at(tn).at(cn).size()) / compute_range_card(0, data.at(tn).at(cn).size());				
 	}
 	// std::cerr << "[compute_selectivity] We didn't find " << op << " in our cases!" << std::endl;
 	assert(0);

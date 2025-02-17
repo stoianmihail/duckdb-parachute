@@ -367,6 +367,11 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 		};
 
 		if (!datasource_filters.empty()) {
+			// Check for parachute option.
+			auto parachute_stats_file = ClientConfig::GetSetting<ParachuteStatsSetting>(context);
+			auto parachute_stats = ClientConfig::GetConfig(context).GetParachuteStats();
+			bool use_parachute = (!parachute_stats_file.empty());
+
 			// TODO: Only use the default selectivity if we have a non-parachute column only.			
 			bool has_non_parachute = false;
 			if (datasource_filters.size() == 1) {
@@ -397,9 +402,17 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 			}
 
 			// Only estimate if we have a non-parachute column.
-			// TODO: Change this when we have parachute stats.
-			if (has_non_parachute) {
+			if (!use_parachute) {
+				if (has_non_parachute) {
+					stats.cardinality = (idx_t)MaxValue(double(stats.cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY, (double)1);
+				}
+			} else if (parachute_stats.empty()) {
+				// Use the default DuckDB v1.2.0 optimizer.
 				stats.cardinality = (idx_t)MaxValue(double(stats.cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY, (double)1);
+			} else {
+				// Use our optimizer.
+				// TODO.
+				assert(0);
 			}
 		}
 		ModifyStatsIfLimit(limit_op.get(), stats);

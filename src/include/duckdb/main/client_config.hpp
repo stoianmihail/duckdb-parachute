@@ -31,8 +31,9 @@ class ParachuteStats {
 public:
 	ParachuteStats() = default;
 	ParachuteStats(std::string input_file, char delimiter=',');
-	bool has(std::string table_name, std::string column_name);
-	double compute_selectivity(std::string table_name, std::string column_name, std::string op, idx_t bin_idx);
+	bool empty() const;
+	bool has(std::string table_name, std::string column_name) const;
+	double compute_selectivity(std::string table_name, std::string column_name, std::string op, idx_t bin_idx) const;
 };
 
 struct ClientConfig {
