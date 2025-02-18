@@ -195,46 +195,168 @@ bool starts_with3(std::string text, std::string pattern) {
 	return text.compare(0, pattern_len, pattern) == 0;
 }
 
-enum MyTokenType { IDENTIFIER, NUMBER, OPERATOR, LPAREN, RPAREN, END };
-
-struct MyToken {
-    MyTokenType type;
-    std::string value;
+// Base class for all AST nodes
+class MyExprNode {
+public:
+    virtual ~MyExprNode() = default;
+    virtual double evaluate(const std::string& table_name, const ParachuteStats& parachute_stats) const = 0;
+    virtual std::string to_string() const = 0;
+    virtual std::unordered_set<std::string> unique_cols() const = 0;
 };
 
-class MyTokenizer {
-    std::string input;
-    size_t pos = 0;
+// Predicate Node (Leaf node)
+class PredicateNode : public MyExprNode {
+    std::string left;
+    std::string op;
+    int right;
 
 public:
-    explicit MyTokenizer(const std::string& text) : input(text) {}
+    PredicateNode(std::string l, std::string o, int r) : left(std::move(l)), op(std::move(o)), right(r) {}
 
-    MyToken next_token() {
-        while (pos < input.size() && std::isspace(input[pos])) pos++;  // Skip spaces
-        if (pos == input.size()) return {END, ""};
+    double evaluate(const std::string& table_name, const ParachuteStats& parachute_stats) const override {
+        if (op == "=") {
+					return parachute_stats.compute_selectivity(table_name, left, op, right);
+				}
+        if (op == "&") {
+					return parachute_stats.compute_mask_selectivity(table_name, left, right);				
+				}
+        D_ASSERT(0);
+				return 0.0;
+    }
 
-        if (std::isalpha(input[pos]) || input[pos] == '_') {  // Identifier
-            size_t start = pos;
-            while (pos < input.size() && (std::isalnum(input[pos]) || input[pos] == '_'))
-                pos++;
-            return {IDENTIFIER, input.substr(start, pos - start)};
-        }
+    std::unordered_set<std::string> unique_cols() const override {
+        return {left};
+    }
 
-        if (std::isdigit(input[pos])) {  // Number
-            size_t start = pos;
-            while (pos < input.size() && std::isdigit(input[pos])) pos++;
-            return {NUMBER, input.substr(start, pos - start)};
-        }
-
-        if (input[pos] == '(') return {LPAREN, std::string(1, input[pos++])};
-        if (input[pos] == ')') return {RPAREN, std::string(1, input[pos++])};
-        if (input.substr(pos, 2) == "OR") { pos += 2; return {OPERATOR, "OR"}; }
-        if (input.substr(pos, 3) == "AND") { pos += 3; return {OPERATOR, "AND"}; }
-        if (input[pos] == '=') return {OPERATOR, std::string(1, input[pos++])};
-
-        throw std::runtime_error("Unexpected token");
+    std::string to_string() const override {
+        return "(" + left + " " + op + " " + std::to_string(right) + ")";
     }
 };
+
+// Logical AND Node
+class MyAndNode : public MyExprNode {
+    std::unique_ptr<MyExprNode> left, right;
+
+public:
+    MyAndNode(std::unique_ptr<MyExprNode> l, std::unique_ptr<MyExprNode> r) : left(std::move(l)), right(std::move(r)) {}
+    double evaluate(const std::string& table_name, const ParachuteStats& parachute_stats) const override {
+        return std::min(left->evaluate(table_name, parachute_stats), right->evaluate(table_name, parachute_stats));
+    }
+    std::unordered_set<std::string> unique_cols() const override {
+        auto set1 = left->unique_cols();
+        auto set2 = right->unique_cols();
+        set1.insert(set2.begin(), set2.end());
+        return set1;
+    }
+    std::string to_string() const override {
+        return "(" + left->to_string() + " AND " + right->to_string() + ")";
+    }
+};
+
+// Logical OR Node
+class MyOrNode : public MyExprNode {
+    std::unique_ptr<MyExprNode> left, right;
+
+public:
+    MyOrNode(std::unique_ptr<MyExprNode> l, std::unique_ptr<MyExprNode> r) : left(std::move(l)), right(std::move(r)) {}
+    double evaluate(const std::string& table_name, const ParachuteStats& parachute_stats) const override {
+        // Check for unique cols, like in `IN`.
+        // NOTE: Is not entirely correct, but works for IN.
+        auto cols = unique_cols();
+        if (cols.size() == 1) 
+            return left->evaluate(table_name, parachute_stats) + right->evaluate(table_name, parachute_stats);
+        return std::max(left->evaluate(table_name, parachute_stats), right->evaluate(table_name, parachute_stats));
+    }
+    std::string to_string() const override {
+        return "(" + left->to_string() + " OR " + right->to_string() + ")";
+    }
+    std::unordered_set<std::string> unique_cols() const override {
+        auto set1 = left->unique_cols();
+        auto set2 = right->unique_cols();
+        set1.insert(set2.begin(), set2.end());
+        return set1;
+    }
+};
+
+// Tokenizer function to handle multi-character operators and spacing
+std::vector<std::string> my_tokenizer(const std::string& expr) {
+    std::vector<std::string> tokens;
+    std::string token;
+    for (size_t i = 0; i < expr.size(); ++i) {
+        char c = expr[i];
+        if (std::isspace(c)) continue;
+        if (c == '(' || c == ')') {
+            tokens.emplace_back(1, c);
+        } else if (c == '&' || c == '=') {
+            tokens.emplace_back(1, c);
+        } else {
+            size_t j = i;
+            while (j < expr.size() && (std::isalnum(expr[j]) || expr[j] == '_')) ++j;
+            tokens.emplace_back(expr.substr(i, j - i));
+            i = j - 1;
+        }
+    }
+    return tokens;
+}
+
+// Parser for boolean expressions
+std::unique_ptr<MyExprNode> my_expression_parser(const std::string& expr) {
+    std::vector<std::string> tokens = my_tokenizer(expr);
+    std::stack<std::unique_ptr<MyExprNode>> values;
+    std::stack<std::string> ops;
+
+    auto applyOperator = [&]() {
+        if (ops.empty() || values.size() < 2) return;
+        std::string op = ops.top(); ops.pop();
+        auto right = std::move(values.top()); values.pop();
+        auto left = std::move(values.top()); values.pop();
+
+        if (op == "AND") {
+            values.push(make_uniq<MyAndNode>(std::move(left), std::move(right)));
+        } else if (op == "OR") {
+            values.push(make_uniq<MyOrNode>(std::move(left), std::move(right)));
+        }
+    };
+
+
+    unsigned i = 0;
+    while (i < tokens.size()) {
+        const std::string& token = tokens[i];
+
+        if (token == "(") {
+            ops.push(token);
+        } else if (token == ")") {
+            while (!ops.empty() && ops.top() != "(") {
+                applyOperator();
+            }
+            ops.pop(); // Remove '('
+        } else if (token == "AND" || token == "OR") {
+            while (!ops.empty() && ops.top() != "(") {
+                applyOperator();
+            }
+            ops.push(token);
+        } else {
+            assert(i + 2 < tokens.size());
+            assert(i + 1 < tokens.size());
+            if (tokens[i + 1] == "=") {
+                values.push(make_uniq<PredicateNode>(tokens[i], tokens[i + 1], std::stoi(tokens[i + 2])));
+                i += 2;
+            } else if (tokens[i + 1] == "&") {
+                values.push(make_uniq<PredicateNode>(tokens[i], "&", std::stoi(tokens[i + 2])));
+                i += 4;
+            } else {
+                assert(0);
+            }
+        }
+        ++i;
+    }
+
+    while (!ops.empty()) {
+        applyOperator();
+    }
+
+    return values.empty() ? nullptr : std::move(values.top());
+}
 
 bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, LogicalOperator &input_op,
                                            vector<reference<LogicalOperator>> &filter_operators,
@@ -484,47 +606,11 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 								continue;
 							}
 
-							// Use regex to parse the pattern: (key & value) = comparison_value
-							// std::regex bit_parachute_pattern(R"(\(\(([^&\s]+)\s*&\s*(\d+)\)\s*=\s*(\d+)\))");
-							std::regex bit_parachute_pattern(R"(\(\(\s*([^&\s]+)\s*&\s*(\d+)\s*\)\s*=\s*(\d+)\))");
-							std::smatch match;
+							// Parse the expression.
+							auto ast = my_expression_parser(expr_str);
 
-							if (regex_match(expr_str, match, bit_parachute_pattern)) {
-								auto key = match[1].str();
-								auto mask_value = std::stoull(match[2].str());
-								auto comp_value = std::stoull(match[3].str());
-
-								std::cerr << "key=..." << key << "..." << std::endl;
-								std::cerr << "mask_value=" << mask_value << std::endl;
-								std::cerr << "comp_value=" << comp_value << std::endl;
-
-								assert(mask_value == comp_value);
-								custom_sel = parachute_stats.compute_mask_selectivity(table_name, key, mask_value);
-								std::cerr << "custom_sel=" << custom_sel << std::endl;
-							} else if (count_token(expr_str, " OR ")) {
-								// Try with `OR`.
-								MyTokenizer tokenizer(expr_str);
-
-								MyToken token;
-								std::string column_name;
-								custom_sel = 0.0;
-								while ((token = tokenizer.next_token()).type != END) {
-									if (token.type == MyTokenType::IDENTIFIER) {
-										column_name = token.value;
-									} else if (token.type == MyTokenType::NUMBER) {
-										auto value = std::stoull(token.value);
-									
-										assert(!column_name.empty());
-										std::cerr << "estimate: column_name=" << column_name << " = " << value << std::endl;
-										auto local_sel = parachute_stats.compute_selectivity(table_name, column_name, "=", value);
-										std::cerr << "local_sel=" << local_sel << std::endl;
-										custom_sel += local_sel;
-									}
-								}
-								std::cerr << "custom_sel=" << custom_sel << std::endl;
-							} else {
-								D_ASSERT(0);
-							}
+							// And evaluate it based on the parachute stats.
+							auto ret = ast->evaluate(table_name, parachute_stats);
 						} else if (parachute_count) {
 							// This should never happen.
 							D_ASSERT(0);
