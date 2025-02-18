@@ -34,6 +34,7 @@ public:
 	bool empty() const;
 	bool has(std::string table_name, std::string column_name) const;
 	double compute_selectivity(std::string table_name, std::string column_name, std::string op, idx_t bin_idx) const;
+	double compute_mask_selectivity(std::string table_name, std::string column_name, idx_t bit_mask) const;
 };
 
 struct ClientConfig {

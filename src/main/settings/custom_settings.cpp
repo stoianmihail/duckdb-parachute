@@ -1180,10 +1180,13 @@ bool ParachuteStats::empty() const {
 }
 
 bool ParachuteStats::has(std::string tn, std::string cn) const {
+	std::cerr << "has" << std::endl;
 	if (data.find(tn) == data.end())
 		return false;
+	std::cerr << "now??" << std::endl;
 	if (data.at(tn).find(cn) == data.at(tn).end())
 		return false;
+	std::cerr << "so???" << std::endl;
 	return true;
 }
 
@@ -1202,20 +1205,51 @@ double ParachuteStats::compute_selectivity(std::string tn, std::string cn, std::
 		return range_card;
 	};
 
+	auto full_range_card = compute_range_card(0, data.at(tn).at(cn).size());
 	if (op == "=") {
-		return 1.0 * compute_range_card(bin_idx, bin_idx + 1) / compute_range_card(0, data.at(tn).at(cn).size());
+		return 1.0 * compute_range_card(bin_idx, bin_idx + 1) / full_range_card;
+	} else if (op == "!=") {
+		return 1.0 * (compute_range_card(bin_idx, bin_idx) + compute_range_card(bin_idx + 1, data.at(tn).at(cn).size())) / full_range_card;	
 	} else if (op == "<") {
-		return 1.0 * compute_range_card(0, bin_idx) / compute_range_card(0, data.at(tn).at(cn).size());		
+		return 1.0 * compute_range_card(0, bin_idx) / full_range_card;		
 	} else if (op == "<=") {
-		return 1.0 * compute_range_card(0, bin_idx + 1) / compute_range_card(0, data.at(tn).at(cn).size());			
+		return 1.0 * compute_range_card(0, bin_idx + 1) / full_range_card;			
 	} else if (op == ">") {
-		return 1.0 * compute_range_card(bin_idx + 1, data.at(tn).at(cn).size()) / compute_range_card(0, data.at(tn).at(cn).size());			
+		return 1.0 * compute_range_card(bin_idx + 1, data.at(tn).at(cn).size()) / full_range_card;			
 	} else if (op == ">=") {
-		return 1.0 * compute_range_card(bin_idx, data.at(tn).at(cn).size()) / compute_range_card(0, data.at(tn).at(cn).size());				
+		return 1.0 * compute_range_card(bin_idx, data.at(tn).at(cn).size()) / full_range_card;				
 	}
 	// std::cerr << "[compute_selectivity] We didn't find " << op << " in our cases!" << std::endl;
 	assert(0);
 	return 0.0;
+}
+
+double ParachuteStats::compute_mask_selectivity(std::string tn, std::string cn, idx_t bit_mask) const {
+
+	std::cerr << "tn=" << tn << " cn=" << cn << std::endl;
+
+	assert(has(tn, cn));
+	
+	// Compute the sum of cardinalities in range [lb, ub[. NOTE: It's exclusive!
+	auto compute_range_card = [&](unsigned lb, unsigned ub) {
+		// std::cerr << "tn=" << tn << " cn=" << cn << " -> " << "lb=" << lb << " ub=" << ub << std::endl;
+
+		idx_t range_card = 0;
+		// NOTE: We really need `< ub` here, since `!=` might overflow.
+		for (unsigned index = lb; index < ub; ++index) {
+			range_card += data.at(tn).at(cn)[index];
+		}
+		return range_card;
+	};
+
+	auto full_range_card = compute_range_card(0, data.at(tn).at(cn).size());
+	auto card = 0;
+	for (idx_t index = 0, limit = data.at(tn).at(cn).size(); index != limit; ++index) {
+		if ((index & bit_mask) == bit_mask) {
+			card += data.at(tn).at(cn)[index];
+		}
+	}
+	return 1.0 * card / full_range_card;
 }
 
 void ParachuteStatsSetting::SetLocal(ClientContext &context, const Value &input) {

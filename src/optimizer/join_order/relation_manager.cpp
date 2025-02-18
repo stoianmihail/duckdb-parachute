@@ -11,6 +11,7 @@
 #include "duckdb/planner/operator/list.hpp"
 
 #include <iostream>
+#include <regex>
 
 namespace duckdb {
 
@@ -193,6 +194,47 @@ bool starts_with3(std::string text, std::string pattern) {
 	if (text_len < pattern_len) return false;
 	return text.compare(0, pattern_len, pattern) == 0;
 }
+
+enum MyTokenType { IDENTIFIER, NUMBER, OPERATOR, LPAREN, RPAREN, END };
+
+struct MyToken {
+    MyTokenType type;
+    std::string value;
+};
+
+class MyTokenizer {
+    std::string input;
+    size_t pos = 0;
+
+public:
+    explicit MyTokenizer(const std::string& text) : input(text) {}
+
+    MyToken next_token() {
+        while (pos < input.size() && std::isspace(input[pos])) pos++;  // Skip spaces
+        if (pos == input.size()) return {END, ""};
+
+        if (std::isalpha(input[pos]) || input[pos] == '_') {  // Identifier
+            size_t start = pos;
+            while (pos < input.size() && (std::isalnum(input[pos]) || input[pos] == '_'))
+                pos++;
+            return {IDENTIFIER, input.substr(start, pos - start)};
+        }
+
+        if (std::isdigit(input[pos])) {  // Number
+            size_t start = pos;
+            while (pos < input.size() && std::isdigit(input[pos])) pos++;
+            return {NUMBER, input.substr(start, pos - start)};
+        }
+
+        if (input[pos] == '(') return {LPAREN, std::string(1, input[pos++])};
+        if (input[pos] == ')') return {RPAREN, std::string(1, input[pos++])};
+        if (input.substr(pos, 2) == "OR") { pos += 2; return {OPERATOR, "OR"}; }
+        if (input.substr(pos, 3) == "AND") { pos += 3; return {OPERATOR, "AND"}; }
+        if (input[pos] == '=') return {OPERATOR, std::string(1, input[pos++])};
+
+        throw std::runtime_error("Unexpected token");
+    }
+};
 
 bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, LogicalOperator &input_op,
                                            vector<reference<LogicalOperator>> &filter_operators,
@@ -391,10 +433,15 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 	case LogicalOperatorType::LOGICAL_GET: {
 		// TODO: Get stats from a logical GET
 		auto &get = op->Cast<LogicalGet>();
+
+		// TODO: I mean, we could push them here, right? At least for cardinality estimation.
 		auto stats = RelationStatisticsHelper::ExtractGetStats(get, context);
 		// if there is another logical filter that could not be pushed down into the
 		// table scan, apply another selectivity.
 		get.SetEstimatedCardinality(stats.cardinality);
+
+		// Get the table name.
+		auto table_name = stats.table_name;
 
 		auto count_token = [&](const string& text, const string token) {
 			size_t ret = 0;
@@ -408,6 +455,7 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 
 		if (!datasource_filters.empty()) {
 			bool has_non_parachute_filter = false;
+			double custom_sel = 1.0;
 			if (datasource_filters.size() == 1) {
 				for (const auto& filter : datasource_filters) {
 					LogicalOperator& op = filter.get();
@@ -417,21 +465,60 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 						// Take the string representation.
 						auto expr_str = expr->ToString();
 
-						// std::cerr << "[LOGICAL_GET] " << expr_str << std::endl;
+						std::cerr << "[LOGICAL_GET] " << expr_str << std::endl;
 
 						// Count `AND` and `OR`.
 						auto sep_count = count_token(expr_str, " AND ") + count_token(expr_str, " OR ");
 
-						// std::cerr << "\tsep_count=" << sep_count << std::endl;
+						std::cerr << "\tsep_count=" << sep_count << std::endl;
 
 						// Count the number of parachute columns.
 						auto parachute_count = count_token(expr_str, "parachute_");
 
-						// std::cerr << "\tparachute_count=" << parachute_count << std::endl;
+						std::cerr << "\tparachute_count=" << parachute_count << std::endl;
 
 						// Full house?
 						if (sep_count == parachute_count - 1) {
-							// noop
+							// Use regex to parse the pattern: (key & value) = comparison_value
+							std::regex bit_parachute_pattern(R"(\(\(([^&]+)\s*&\s*(\d+)\)\s*=\s*(\d+)\))");
+							std::smatch match;
+
+							if (regex_match(expr_str, match, bit_parachute_pattern)) {
+								auto key = match[1].str();
+								auto mask_value = std::stoull(match[2].str());
+								auto comp_value = std::stoull(match[3].str());
+
+								std::cerr << "key=" << key << std::endl;
+								std::cerr << "mask_value=" << mask_value << std::endl;
+								std::cerr << "comp_value=" << comp_value << std::endl;
+
+								assert(mask_value == comp_value);
+								custom_sel = parachute_stats.compute_mask_selectivity(table_name, key, mask_value);
+								std::cerr << "custom_sel=" << custom_sel << std::endl;
+							} else if (count_token(expr_str, " OR ")) {
+								// Try with `OR`.
+								MyTokenizer tokenizer(expr_str);
+
+								MyToken token;
+								std::string column_name;
+								while ((token = tokenizer.next_token()).type != END) {
+									if (token.type == MyTokenType::IDENTIFIER) {
+										column_name = token.value;
+									} else if (token.type == MyTokenType::NUMBER) {
+										auto value = std::stoull(token.value);
+									
+										assert(!column_name.empty());
+										std::cerr << "estimate: column_name=" << column_name << " = " << value << std::endl;
+										custom_sel += parachute_stats.compute_selectivity(table_name, column_name, "=", value);
+									}
+								}
+								std::cerr << "custom_sel=" << custom_sel << std::endl;
+							} else {
+								D_ASSERT(0);
+							}
+						} else if (parachute_count) {
+							// This should never happen.
+							D_ASSERT(0);
 						} else {
 							has_non_parachute_filter = true;
 						}
@@ -452,7 +539,8 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 			} else {
 				// Use our optimizer.
 				// TODO.
-				D_ASSERT(0);
+				std::cerr << "######## SHOULD BE HERE" << std::endl;
+				stats.cardinality = (idx_t)MaxValue(double(stats.cardinality) * custom_sel, (double)1);
 			}
 		}
 		ModifyStatsIfLimit(limit_op.get(), stats);
