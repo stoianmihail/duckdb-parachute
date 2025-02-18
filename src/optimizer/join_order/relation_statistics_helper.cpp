@@ -186,6 +186,7 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 				if (is_parachute_col) {
 					// Are we allowed to use parachutes?
 					if (use_parachute) {
+						// TODO: Also make the differentiation of whether we use our estimates or not.
 						has_non_optional_filters = true;
 					} else {
 						// noop.
@@ -224,8 +225,8 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 				cardinality_after_filters = MaxValue<idx_t>(LossyNumericCast<idx_t>(double(base_table_cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY), 1U);
 			}
 		} else {
-			// TODO.
-			assert(0);
+			assert((use_parachute) && (!parachute_stats.empty()));
+			// Let's keep this as is. Using the default selectivity is anyway bad.
 		}
 
 		if (base_table_cardinality == 0) {
@@ -491,7 +492,7 @@ std::string TableFilterTypeToString(TableFilterType type) {
 	}
 }
 
-idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& stats, idx_t cardinality, idx_t column_index,  TableFilter &filter, std::string tab_name, std::string col_name, BaseStatistics &base_stats) {
+idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& parachute_stats, idx_t cardinality, idx_t column_index,  TableFilter &filter, std::string tab_name, std::string col_name, BaseStatistics &base_stats) {
 	auto cardinality_after_filters = cardinality;
 	
 	// std::cerr << "[InspectParachuteFilter] tn=" << tab_name << " cn=" << col_name << std::endl;
@@ -511,106 +512,35 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& stats, id
 		}
 		case TableFilterType::CONSTANT_COMPARISON: {
 			auto &comparison_filter = filter.Cast<ConstantFilter>();
-			switch (comparison_filter.comparison_type) {
-				case ExpressionType::COMPARE_EQUAL: {
-					// std::cerr << "filter =" << std::endl;
-					auto val = comparison_filter.constant.GetValue<uint32_t>();
 
-					// std::cerr << "tab_name=" << tab_name << " col_name=" << col_name << std::endl;
+			// Take the value.
+			auto val = comparison_filter.constant.GetValue<uint32_t>();
 
-					// TODO: Don't return if we have multiple filters (later).
-					if (!stats.has(tab_name, col_name))
-						return cardinality_after_filters;
+			// TODO: Don't return if we have multiple filters (later).
+			if (!parachute_stats.has(tab_name, col_name))
+				return cardinality_after_filters;
 
-					auto sel = stats.compute_selectivity(tab_name, col_name, "=", val);
-
-					// std::cerr << "[" << col_name << " = " << val << "]: sel=" << sel << std::endl;
-
-					return static_cast<idx_t>(sel * cardinality_after_filters);
-				}
-				case ExpressionType::COMPARE_LESSTHAN: {
-					auto val = comparison_filter.constant.GetValue<uint32_t>();
-
-					// TODO: Don't return if we have multiple filters (later).
-					if (!stats.has(tab_name, col_name))
-						return cardinality_after_filters;
-
-					auto sel = stats.compute_selectivity(tab_name, col_name, "<", val);
-
-					// std::cerr << "[" << col_name << " < " << val << "]: sel=" << sel << std::endl;
-
-					return static_cast<idx_t>(sel * cardinality_after_filters);
-				}
-				case ExpressionType::COMPARE_LESSTHANOREQUALTO: {
-					auto val = comparison_filter.constant.GetValue<uint32_t>();
-
-					// TODO: Don't return if we have multiple filters (later).
-					if (!stats.has(tab_name, col_name))
-						return cardinality_after_filters;
-
-					auto sel = stats.compute_selectivity(tab_name, col_name, "<=", val);
-
-					// std::cerr << "[" << col_name << " <= " << val << "]: sel=" << sel << std::endl;
-
-					return static_cast<idx_t>(sel * cardinality_after_filters);
-				}
-				case ExpressionType::COMPARE_GREATERTHAN: {
-					auto val = comparison_filter.constant.GetValue<uint32_t>();
-
-					// TODO: Don't return if we have multiple filters (later).
-					if (!stats.has(tab_name, col_name))
-						return cardinality_after_filters;
-
-					auto sel = stats.compute_selectivity(tab_name, col_name, ">", val);
-
-					// std::cerr << "[" << col_name << " > " << val << "]: sel=" << sel << std::endl;
-
-					return static_cast<idx_t>(sel * cardinality_after_filters);
-				}
-				case ExpressionType::COMPARE_GREATERTHANOREQUALTO: {
-					auto val = comparison_filter.constant.GetValue<uint32_t>();
-
-					// TODO: Don't return if we have multiple filters (later).
-					if (!stats.has(tab_name, col_name))
-						return cardinality_after_filters;
-
-					auto sel = stats.compute_selectivity(tab_name, col_name, ">=", val);
-
-					// std::cerr << "[" << col_name << " >= " << val << "]: sel=" << sel << std::endl;
-
-					return static_cast<idx_t>(sel * cardinality_after_filters);
-				}
-				case ExpressionType::COMPARE_BETWEEN: {
-					std::cerr << "between!" << std::endl;
-					// auto &between = filter.Cast<BoundBetweenExpression>();
-					// assert(between.lower->GetExpressionType() == ExpressionType::VALUE_CONSTANT);
-					// assert(between.upper->GetExpressionType() == ExpressionType::VALUE_CONSTANT);
-
-					// auto lb = between.lower->Cast<BoundConstantExpression>().value;
-					// // low_value = between.lower->Cast<BoundConstantExpression>().value;
-					// // low_comparison_type = between.lower_inclusive ? ExpressionType::COMPARE_GREATERTHANOREQUALTO : ExpressionType::COMPARE_GREATERTHAN;
-					// auto ub = (between.upper->Cast<BoundConstantExpression>()).value;
-					// // high_comparison_type = between.upper_inclusive ? ExpressionType::COMPARE_LESSTHANOREQUALTO : ExpressionType::COMPARE_LESSTHAN;
-
-					// std::cerr << "lb=" << lb << " ub=" << ub << std::endl;
-
-					// if (!stats.has(tab_name, col_name))
-					// 	return cardinality_after_filters;
-
-
-					auto sel = 0.2;//stats.compute_selectivity(tab_name, col_name, ">=", val);
-
-					// std::cerr << "[" << col_name << " >= " << val << "]: sel=" << sel << std::endl;
-
-					return static_cast<idx_t>(sel * cardinality_after_filters);
-					// auto sel = stats.compute_selectivity(tab_name, col_name, 'between', low_value, high_value);
-				}
-				default: {
-					std::cerr << "here!" << std::endl;
-					assert(0);
-					return cardinality_after_filters;
-				}
+			std::string op;
+			if (comparison_filter.comparison_type == ExpressionType::COMPARE_EQUAL) {
+				op = "=";
+			} else if (comparison_filter.comparison_type == ExpressionType::COMPARE_LESSTHAN) {
+				op = "<";
+			} else if (comparison_filter.comparison_type == ExpressionType::COMPARE_LESSTHANOREQUALTO) {
+				op = "<=";
+			} else if (comparison_filter.comparison_type == ExpressionType::COMPARE_GREATERTHAN) {
+				op = ">";
+			} else if (comparison_filter.comparison_type == ExpressionType::COMPARE_GREATERTHANOREQUALTO) {
+				op = ">=";
 			}
+
+			if (op.empty()) {
+				auto sel = parachute_stats.compute_selectivity(tab_name, col_name, "=", val);
+				// std::cerr << "[" << col_name << " " << op << " " << val << "]: sel=" << sel << std::endl;
+				return static_cast<idx_t>(sel * cardinality_after_filters);
+			}
+
+			// TODO
+			assert(0);
 		}
 		default: {
 			std::cerr << "or here????" << std::endl;
