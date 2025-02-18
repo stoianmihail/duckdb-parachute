@@ -479,8 +479,14 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 
 						// Full house?
 						if (sep_count == parachute_count - 1) {
+							// No stats? Then skip.
+							if (parachute_stats.empty()) {
+								continue;
+							}
+
 							// Use regex to parse the pattern: (key & value) = comparison_value
-							std::regex bit_parachute_pattern(R"(\(\(([^&]+)\s*&\s*(\d+)\)\s*=\s*(\d+)\))");
+							// std::regex bit_parachute_pattern(R"(\(\(([^&\s]+)\s*&\s*(\d+)\)\s*=\s*(\d+)\))");
+							std::regex bit_parachute_pattern(R"(\(\(\s*([^&\s]+)\s*&\s*(\d+)\s*\)\s*=\s*(\d+)\))");
 							std::smatch match;
 
 							if (regex_match(expr_str, match, bit_parachute_pattern)) {
@@ -488,7 +494,7 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 								auto mask_value = std::stoull(match[2].str());
 								auto comp_value = std::stoull(match[3].str());
 
-								std::cerr << "key=" << key << std::endl;
+								std::cerr << "key=..." << key << "..." << std::endl;
 								std::cerr << "mask_value=" << mask_value << std::endl;
 								std::cerr << "comp_value=" << comp_value << std::endl;
 
@@ -501,6 +507,7 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 
 								MyToken token;
 								std::string column_name;
+								custom_sel = 0.0;
 								while ((token = tokenizer.next_token()).type != END) {
 									if (token.type == MyTokenType::IDENTIFIER) {
 										column_name = token.value;
@@ -509,7 +516,9 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 									
 										assert(!column_name.empty());
 										std::cerr << "estimate: column_name=" << column_name << " = " << value << std::endl;
-										custom_sel += parachute_stats.compute_selectivity(table_name, column_name, "=", value);
+										auto local_sel = parachute_stats.compute_selectivity(table_name, column_name, "=", value);
+										std::cerr << "local_sel=" << local_sel << std::endl;
+										custom_sel += local_sel;
 									}
 								}
 								std::cerr << "custom_sel=" << custom_sel << std::endl;
@@ -532,15 +541,25 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 			if (!use_parachute) {
 				if (has_non_parachute_filter) {
 					stats.cardinality = (idx_t)MaxValue(double(stats.cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY, (double)1);
+				} else {
+					// noop.
 				}
-			} else if (parachute_stats.empty()) {
-				// Use the default DuckDB v1.2.0 optimizer.
-				stats.cardinality = (idx_t)MaxValue(double(stats.cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY, (double)1);
 			} else {
-				// Use our optimizer.
-				// TODO.
-				std::cerr << "######## SHOULD BE HERE" << std::endl;
-				stats.cardinality = (idx_t)MaxValue(double(stats.cardinality) * custom_sel, (double)1);
+				// Do we have a non-parachute column (even if we use parachute)?
+				if (has_non_parachute_filter) {
+					stats.cardinality = (idx_t)MaxValue(double(stats.cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY, (double)1);	
+				} else {
+					// Otherwise, estimate the parachute column.
+					if (parachute_stats.empty()) {
+						// Use the default DuckDB v1.2.0 optimizer.
+						stats.cardinality = (idx_t)MaxValue(double(stats.cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY, (double)1);
+					} else {
+						// Use our optimizer.
+						// TODO: Skip this if we artificially pushed it, i.e., if we indeed have `parachute_stats`.
+						std::cerr << "######## SHOULD BE HERE" << std::endl;
+						stats.cardinality = (idx_t)MaxValue(double(stats.cardinality) * custom_sel, (double)1);
+					}
+				}
 			}
 		}
 		ModifyStatsIfLimit(limit_op.get(), stats);
