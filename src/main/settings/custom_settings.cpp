@@ -1180,13 +1180,10 @@ bool ParachuteStats::empty() const {
 }
 
 bool ParachuteStats::has(std::string tn, std::string cn) const {
-	std::cerr << "has" << std::endl;
 	if (data.find(tn) == data.end())
 		return false;
-	std::cerr << "now??" << std::endl;
 	if (data.at(tn).find(cn) == data.at(tn).end())
 		return false;
-	std::cerr << "so???" << std::endl;
 	return true;
 }
 
@@ -1225,9 +1222,6 @@ double ParachuteStats::compute_selectivity(std::string tn, std::string cn, std::
 }
 
 double ParachuteStats::compute_mask_selectivity(std::string tn, std::string cn, idx_t bit_mask) const {
-
-	std::cerr << "tn=" << tn << " cn=" << cn << std::endl;
-
 	assert(has(tn, cn));
 	
 	// Compute the sum of cardinalities in range [lb, ub[. NOTE: It's exclusive!

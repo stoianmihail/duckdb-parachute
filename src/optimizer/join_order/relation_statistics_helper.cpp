@@ -164,6 +164,9 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 			parachute_filter_count += is_parachute_col;
 
 			if (column_statistics) {
+				std::cerr << "************ HAS COLUMN STATISTICS *************" << std::endl;
+				std::cerr << "IS IT OPTOINAL????? " << (it.second->filter_type == TableFilterType::OPTIONAL_FILTER) << std::endl;
+
 				idx_t cardinality_with_filter = cardinality_after_filters;
 				if (is_parachute_col) {
 					if (use_parachute) {
@@ -192,8 +195,13 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 				if (is_parachute_col) {
 					// Are we allowed to use parachutes?
 					if (use_parachute) {
-						// TODO: Also make the differentiation of whether we use our estimates or not.
-						has_non_optional_filters = true;
+						// Make the differentiation of whether we use our estimates or not.
+						if (parachute_stats.empty()) {
+							has_non_optional_filters = true;
+						} else {
+							// NOTE: We can estimate all our parachute columns.
+							// noop.
+						}
 					} else {
 						// noop.
 					}
@@ -529,6 +537,12 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& parachute
 	
 	// std::cerr << "[InspectParachuteFilter] tn=" << tab_name << " cn=" << col_name << std::endl;
 
+	// Don't estimate optional parachute filters.
+	// NOTE: We might still estimate them from the artificially pushed filters.
+	if (filter.filter_type == TableFilterType::OPTIONAL_FILTER) {
+		return cardinality_after_filters;
+	}
+
 	std::cerr << "filter_type=" << TableFilterTypeToString(filter.filter_type) << std::endl;
 
 	auto count_token = [&](const string& text, const string token) {
@@ -592,6 +606,9 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& parachute
 		default: {
 			std::cerr << "or here????" << std::endl;
 			auto filter_str = filter.ToString(col_name);
+
+			// NOTE: Optional filters actually start with `optional:`.
+			// NOTE: And even have the type optional.
 
 			// IN-clause.
 			if (count_token(filter_str, " IN ")) {
