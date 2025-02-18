@@ -52,7 +52,7 @@ static ExpressionBinding GetChildColumnBinding(Expression &expr) {
 	return ret;
 }
 
-bool starts_with(std::string text, std::string pattern) {
+bool starts_with1(std::string text, std::string pattern) {
 	int text_len = text.size();
 	int pattern_len = pattern.size();
 	if (text_len < pattern_len) return false;
@@ -96,7 +96,7 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 		// Should we disallow parachutes?
 		if (!use_parachute) {
 			// Skip if parachute column (and if `column_id` is valid, of course).
-			if ((column_id < get.names.size()) && (starts_with(get.names.at(column_id), "parachute_"))) {
+			if ((column_id < get.names.size()) && (starts_with1(get.names.at(column_id), "parachute_"))) {
 				continue;
 			}
 		}
@@ -156,7 +156,7 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 			// std::cerr << "--- column_name=" << column_name << std::endl;
 
 			// Check if it's a parachute column.
-			auto is_parachute_col = starts_with(column_name, "parachute_");
+			auto is_parachute_col = starts_with1(column_name, "parachute_");
 
 			// Increment the number of parachute columns (if the case).
 			parachute_filter_count += is_parachute_col;
@@ -225,7 +225,7 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 				cardinality_after_filters = MaxValue<idx_t>(LossyNumericCast<idx_t>(double(base_table_cardinality) * RelationStatisticsHelper::DEFAULT_SELECTIVITY), 1U);
 			}
 		} else {
-			assert((use_parachute) && (!parachute_stats.empty()));
+			D_ASSERT((use_parachute) && (!parachute_stats.empty()));
 			// Let's keep this as is. Using the default selectivity is anyway bad.
 		}
 

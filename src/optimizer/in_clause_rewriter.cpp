@@ -10,6 +10,8 @@
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 
+#include <iostream>
+
 namespace duckdb {
 
 unique_ptr<LogicalOperator> InClauseRewriter::Rewrite(unique_ptr<LogicalOperator> op) {
@@ -30,6 +32,13 @@ unique_ptr<LogicalOperator> InClauseRewriter::Rewrite(unique_ptr<LogicalOperator
 		child = Rewrite(std::move(child));
 	}
 	return op;
+}
+
+bool starts_with2(std::string text, std::string pattern) {
+	int text_len = text.size();
+	int pattern_len = pattern.size();
+	if (text_len < pattern_len) return false;
+	return text.compare(0, pattern_len, pattern) == 0;
 }
 
 unique_ptr<Expression> InClauseRewriter::VisitReplace(BoundOperatorExpression &expr, unique_ptr<Expression> *expr_ptr) {
@@ -105,6 +114,19 @@ unique_ptr<Expression> InClauseRewriter::VisitReplace(BoundOperatorExpression &e
 	join->mark_index = chunk_index;
 	join->AddChild(std::move(root));
 	join->AddChild(std::move(chunk_scan));
+
+	// Check if we deal with a parachute.
+	// NOTE: This check should come here, since then the condition is moved!
+	bool is_parachute_col = false;
+	std::string value_list_str;
+	if (starts_with2(expr.children[0]->ToString(), "parachute_")) {
+		is_parachute_col = true;
+		for (unsigned index = 1, limit = expr.children.size(); index != limit; ++index) {
+			value_list_str += expr.children[index]->ToString();
+			value_list_str += " ";
+		}
+	}
+
 	// create the JOIN condition
 	JoinCondition cond;
 	cond.left = std::move(expr.children[0]);
@@ -127,9 +149,13 @@ unique_ptr<Expression> InClauseRewriter::VisitReplace(BoundOperatorExpression &e
 		}
 	}
 
+	// TODO: The idea is to put the name of the column in this alias to be prepared for parachute checking.
+
 	// we replace the original subquery with a BoundColumnRefExpression referring to the mark column
 	unique_ptr<Expression> result =
-	    make_uniq<BoundColumnRefExpression>("IN (...)", LogicalType::BOOLEAN, ColumnBinding(chunk_index, 0));
+		(is_parachute_col)
+		? make_uniq<BoundColumnRefExpression>("PARACHUTE_IN (...) list=" + value_list_str, LogicalType::BOOLEAN, ColumnBinding(chunk_index, 0))
+		: make_uniq<BoundColumnRefExpression>("IN (...)", LogicalType::BOOLEAN, ColumnBinding(chunk_index, 0));
 	if (!is_regular_in) {
 		// NOT IN: invert
 		auto invert = make_uniq<BoundOperatorExpression>(ExpressionType::OPERATOR_NOT, LogicalType::BOOLEAN);
