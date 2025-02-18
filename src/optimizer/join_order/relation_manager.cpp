@@ -302,48 +302,69 @@ std::vector<std::string> my_tokenizer(const std::string& expr) {
 // Parser for boolean expressions
 std::unique_ptr<MyExprNode> my_expression_parser(const std::string& expr) {
     std::vector<std::string> tokens = my_tokenizer(expr);
-    std::stack<std::unique_ptr<MyExprNode>> values;
-    std::stack<std::string> ops;
+    std::vector<std::unique_ptr<MyExprNode>> values;
+    std::vector<std::string> ops;
+
+    // auto debug_ops=[&](std::vector<std::string>& vs, const char*msg) {
+    //     std::cerr << msg << "(" << vs.size() << "): ";
+    //     for (auto v: vs) {
+    //         std::cerr << v << " ";
+    //     }
+    //     std::cerr << std::endl;
+    // };
+    // auto debug_values=[&](std::vector<std::unique_ptr<MyExprNode>>& vs, const char*msg) {
+    //     std::cerr << msg << "(" << vs.size() << "): ";
+    //     for (auto& v: vs) {
+    //         std::cerr << v->to_string() << " ";
+    //     }
+    //     std::cerr << std::endl << std::endl;;
+    // };
 
     auto applyOperator = [&]() {
-        if (ops.empty() || values.size() < 2) return;
-        std::string op = ops.top(); ops.pop();
-        auto right = std::move(values.top()); values.pop();
-        auto left = std::move(values.top()); values.pop();
+        if (ops.empty() || values.size() < 2) {
+           return;
+        }
+        std::string op = ops.back(); ops.pop_back();
+        auto right = std::move(values.back()); values.pop_back();
+        auto left = std::move(values.back()); values.pop_back();
 
         if (op == "AND") {
-            values.push(make_uniq<MyAndNode>(std::move(left), std::move(right)));
+            values.push_back(make_uniq<MyAndNode>(std::move(left), std::move(right)));
         } else if (op == "OR") {
-            values.push(make_uniq<MyOrNode>(std::move(left), std::move(right)));
+            values.push_back(make_uniq<MyOrNode>(std::move(left), std::move(right)));
+        } else {
+            assert(0);
         }
     };
-
 
     unsigned i = 0;
     while (i < tokens.size()) {
         const std::string& token = tokens[i];
 
         if (token == "(") {
-            ops.push(token);
+            ops.push_back(token);
         } else if (token == ")") {
-            while (!ops.empty() && ops.top() != "(") {
+            while (!ops.empty() && ops.back() != "(") {
                 applyOperator();
             }
-            ops.pop(); // Remove '('
+            ops.pop_back(); // Remove '('
         } else if (token == "AND" || token == "OR") {
-            while (!ops.empty() && ops.top() != "(") {
+            while (!ops.empty() && ops.back() != "(") {
                 applyOperator();
             }
-            ops.push(token);
+            ops.push_back(token);
         } else {
             assert(i + 2 < tokens.size());
             assert(i + 1 < tokens.size());
+
             if (tokens[i + 1] == "=") {
-                values.push(make_uniq<PredicateNode>(tokens[i], tokens[i + 1], std::stoi(tokens[i + 2])));
+                values.push_back(make_uniq<PredicateNode>(tokens[i], tokens[i + 1], std::stoi(tokens[i + 2])));
                 i += 2;
             } else if (tokens[i + 1] == "&") {
-                values.push(make_uniq<PredicateNode>(tokens[i], "&", std::stoi(tokens[i + 2])));
-                i += 4;
+                assert(ops.back() == "(");
+                ops.pop_back();
+                values.push_back(make_uniq<PredicateNode>(tokens[i], "&", std::stoi(tokens[i + 2])));
+                i += 5;
             } else {
                 assert(0);
             }
@@ -355,7 +376,7 @@ std::unique_ptr<MyExprNode> my_expression_parser(const std::string& expr) {
         applyOperator();
     }
 
-    return values.empty() ? nullptr : std::move(values.top());
+    return values.empty() ? nullptr : std::move(values.back());
 }
 
 bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, LogicalOperator &input_op,
@@ -609,8 +630,13 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 							// Parse the expression.
 							auto ast = my_expression_parser(expr_str);
 
+							std::cerr << "built ast" << std::endl;
+
 							// And evaluate it based on the parachute stats.
-							auto ret = ast->evaluate(table_name, parachute_stats);
+							custom_sel = ast->evaluate(table_name, parachute_stats);
+
+
+							std::cerr << "custom_sel=" << custom_sel << std::endl;
 						} else if (parachute_count) {
 							// This should never happen.
 							D_ASSERT(0);

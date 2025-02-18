@@ -1161,7 +1161,7 @@ ParachuteStats::ParachuteStats(std::string input_file, char delimiter) {
 		assert (field_index == 5);
 		data[curr_table_name][curr_col_name].resize(curr_num_bins);
 		assert (curr_bin_idx < curr_num_bins);
-		data[curr_table_name][curr_col_name][curr_bin_idx] = curr_card;
+		data[curr_table_name][curr_col_name].push_back({curr_bin_idx, curr_card});
 	}
 
 	// for (auto& [tn, _] : data) {
@@ -1187,34 +1187,34 @@ bool ParachuteStats::has(std::string tn, std::string cn) const {
 	return true;
 }
 
+idx_t ParachuteStats::compute_range_card(std::string tn, std::string cn, idx_t lb, idx_t ub) const {
+	assert(has(tn, cn));
+	idx_t range_card = 0;
+	for (auto elem : data.at(tn).at(cn)) {
+		if ((lb <= elem.first) && (elem.first < ub)) {
+			range_card += elem.second;
+		}
+	}
+	return range_card;
+}
+
 double ParachuteStats::compute_selectivity(std::string tn, std::string cn, std::string op, idx_t bin_idx) const {
 	assert(has(tn, cn));
-	
-	// Compute the sum of cardinalities in range [lb, ub[. NOTE: It's exclusive!
-	auto compute_range_card = [&](unsigned lb, unsigned ub) {
-		// std::cerr << "tn=" << tn << " cn=" << cn << " -> " << "lb=" << lb << " ub=" << ub << std::endl;
 
-		idx_t range_card = 0;
-		// NOTE: We really need `< ub` here, since `!=` might overflow.
-		for (unsigned index = lb; index < ub; ++index) {
-			range_card += data.at(tn).at(cn)[index];
-		}
-		return range_card;
-	};
-
-	auto full_range_card = compute_range_card(0, data.at(tn).at(cn).size());
+	auto infty = std::numeric_limits<idx_t>::max();
+	auto full_range_card = compute_range_card(tn, cn, 0, infty);
 	if (op == "=") {
-		return 1.0 * compute_range_card(bin_idx, bin_idx + 1) / full_range_card;
+		return 1.0 * compute_range_card(tn, cn, bin_idx, bin_idx + 1) / full_range_card;
 	} else if (op == "!=") {
-		return 1.0 * (compute_range_card(bin_idx, bin_idx) + compute_range_card(bin_idx + 1, data.at(tn).at(cn).size())) / full_range_card;	
+		return 1.0 * (compute_range_card(tn, cn, bin_idx, bin_idx) + compute_range_card(tn, cn, bin_idx + 1, infty)) / full_range_card;	
 	} else if (op == "<") {
-		return 1.0 * compute_range_card(0, bin_idx) / full_range_card;		
+		return 1.0 * compute_range_card(tn, cn, 0, bin_idx) / full_range_card;		
 	} else if (op == "<=") {
-		return 1.0 * compute_range_card(0, bin_idx + 1) / full_range_card;			
+		return 1.0 * compute_range_card(tn, cn, 0, bin_idx + 1) / full_range_card;			
 	} else if (op == ">") {
-		return 1.0 * compute_range_card(bin_idx + 1, data.at(tn).at(cn).size()) / full_range_card;			
+		return 1.0 * compute_range_card(tn, cn, bin_idx + 1, infty) / full_range_card;			
 	} else if (op == ">=") {
-		return 1.0 * compute_range_card(bin_idx, data.at(tn).at(cn).size()) / full_range_card;				
+		return 1.0 * compute_range_card(tn, cn, bin_idx, infty) / full_range_card;				
 	}
 	// std::cerr << "[compute_selectivity] We didn't find " << op << " in our cases!" << std::endl;
 	assert(0);
@@ -1223,27 +1223,16 @@ double ParachuteStats::compute_selectivity(std::string tn, std::string cn, std::
 
 double ParachuteStats::compute_mask_selectivity(std::string tn, std::string cn, idx_t bit_mask) const {
 	assert(has(tn, cn));
-	
-	// Compute the sum of cardinalities in range [lb, ub[. NOTE: It's exclusive!
-	auto compute_range_card = [&](unsigned lb, unsigned ub) {
-		// std::cerr << "tn=" << tn << " cn=" << cn << " -> " << "lb=" << lb << " ub=" << ub << std::endl;
 
-		idx_t range_card = 0;
-		// NOTE: We really need `< ub` here, since `!=` might overflow.
-		for (unsigned index = lb; index < ub; ++index) {
-			range_card += data.at(tn).at(cn)[index];
-		}
-		return range_card;
-	};
-
-	auto full_range_card = compute_range_card(0, data.at(tn).at(cn).size());
+	auto infty = std::numeric_limits<idx_t>::max();
+	auto full_range_card = compute_range_card(tn, cn, 0, infty);
 	auto card = 0;
-	for (idx_t index = 0, limit = data.at(tn).at(cn).size(); index != limit; ++index) {
-		if ((index & bit_mask) == bit_mask) {
-			card += data.at(tn).at(cn)[index];
+	for (auto elem : data.at(tn).at(cn)) {
+		if ((elem.first & bit_mask) == bit_mask) {
+			card += elem.second;
 		}
 	}
-	return 1.0 * card / full_range_card;
+	return card;
 }
 
 void ParachuteStatsSetting::SetLocal(ClientContext &context, const Value &input) {

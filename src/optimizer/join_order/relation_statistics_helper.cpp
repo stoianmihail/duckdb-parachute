@@ -535,7 +535,7 @@ std::vector<std::string> parse_in_clause(const std::string& pred, const std::str
 idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& parachute_stats, idx_t cardinality, idx_t column_index,  TableFilter &filter, std::string tab_name, std::string col_name, BaseStatistics &base_stats) {
 	auto cardinality_after_filters = cardinality;
 	
-	// std::cerr << "[InspectParachuteFilter] tn=" << tab_name << " cn=" << col_name << std::endl;
+	std::cerr << "[InspectParachuteFilter] tn=" << tab_name << " cn=" << col_name << std::endl;
 
 	// Don't estimate optional parachute filters.
 	// NOTE: We might still estimate them from the artificially pushed filters.
@@ -544,6 +544,7 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& parachute
 	}
 
 	std::cerr << "filter_type=" << TableFilterTypeToString(filter.filter_type) << std::endl;
+	std::cerr << "filter=" << filter.ToString(col_name) << std::endl;
 
 	auto count_token = [&](const string& text, const string token) {
 		size_t ret = 0;
