@@ -105,6 +105,7 @@ void CardinalityEstimator::InitEquivalentRelations(const vector<unique_ptr<Filte
 	// For each filter, we fill keep track of the index of the equivalent relation set
 	// the left and right relation needs to be added to.
 	for (auto &filter : filter_infos) {
+		// std::cerr << "\t[InitEquivalentRelations]" << filter->filter->ToString() << std::endl;
 		if (SingleColumnFilter(*filter)) {
 			// Filter on one relation, (i.e. string or range filter on a column).
 			// Grab the first relation and add it to  the equivalence_relations
@@ -429,6 +430,8 @@ void CardinalityEstimator::InitCardinalityEstimatorProps(optional_ptr<JoinRelati
 
 	UpdateTotalDomains(set, stats);
 
+	// PrintRelationToTdomInfo();
+
 	// sort relations from greatest tdom to lowest tdom.
 	std::sort(relations_to_tdoms.begin(), relations_to_tdoms.end(), SortTdoms);
 }
@@ -452,7 +455,10 @@ void CardinalityEstimator::UpdateTotalDomains(optional_ptr<JoinRelationSet> set,
 			}
 			auto distinct_count = stats.column_distinct_count.at(i);
 
-			
+			// std::cerr << "[UpdateTotalDomains] inside here" << std::endl;
+			// auto column_name = stats.column_names.at(i);
+			// std::cerr << "\tcolumn_name=" << column_name << std::endl;
+
 			if (distinct_count.from_hll && relation_to_tdom.has_tdom_hll) {
 				relation_to_tdom.tdom_hll = MaxValue(relation_to_tdom.tdom_hll, distinct_count.distinct_count);
 			} else if (distinct_count.from_hll && !relation_to_tdom.has_tdom_hll) {
