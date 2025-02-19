@@ -600,6 +600,7 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 			bool has_non_parachute_filter = false;
 			double custom_sel = 1.0;
 			if (datasource_filters.size() == 1) {
+				bool only_once = False;
 				for (const auto& filter : datasource_filters) {
 					LogicalOperator& op = filter.get();
 					D_ASSERT(op.GetName() == "FILTER");
@@ -622,6 +623,9 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 
 						// Full house?
 						if (sep_count == parachute_count - 1) {
+							D_ASSERT(!only_once);
+							only_once = true;
+
 							// No stats? Then skip.
 							if (parachute_stats.empty()) {
 								continue;

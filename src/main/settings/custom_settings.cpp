@@ -1187,6 +1187,11 @@ bool ParachuteStats::has(std::string tn, std::string cn) const {
 	return true;
 }
 
+idx_t ParachuteStats::compute_full_card(std::string tn, std::string cn) const {
+	auto infty = std::numeric_limits<idx_t>::max();
+	return compute_range_card(tn, cn, 0, infty);
+}
+
 idx_t ParachuteStats::compute_range_card(std::string tn, std::string cn, idx_t lb, idx_t ub) const {
 	assert(has(tn, cn));
 	idx_t range_card = 0;
@@ -1202,7 +1207,7 @@ double ParachuteStats::compute_selectivity(std::string tn, std::string cn, std::
 	assert(has(tn, cn));
 
 	auto infty = std::numeric_limits<idx_t>::max();
-	auto full_range_card = compute_range_card(tn, cn, 0, infty);
+	auto full_range_card = compute_full_card(tn, cn);
 	if (op == "=") {
 		return 1.0 * compute_range_card(tn, cn, bin_idx, bin_idx + 1) / full_range_card;
 	} else if (op == "!=") {
@@ -1224,15 +1229,14 @@ double ParachuteStats::compute_selectivity(std::string tn, std::string cn, std::
 double ParachuteStats::compute_mask_selectivity(std::string tn, std::string cn, idx_t bit_mask) const {
 	assert(has(tn, cn));
 
-	auto infty = std::numeric_limits<idx_t>::max();
-	auto full_range_card = compute_range_card(tn, cn, 0, infty);
+	auto full_range_card = compute_full_card(tn, cn);
 	auto card = 0;
 	for (auto elem : data.at(tn).at(cn)) {
 		if ((elem.first & bit_mask) == bit_mask) {
 			card += elem.second;
 		}
 	}
-	return card;
+	return 1.0 * card / full_range_card;
 }
 
 void ParachuteStatsSetting::SetLocal(ClientContext &context, const Value &input) {

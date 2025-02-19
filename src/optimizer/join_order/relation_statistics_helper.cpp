@@ -556,84 +556,107 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& parachute
 		return ret;
 	};
 
-	switch (filter.filter_type) {
-		case TableFilterType::CONJUNCTION_AND: {
-			// NOTE: Should never come into here!
-			assert(0);
-			// auto &and_filter = filter.Cast<ConjunctionAndFilter>();
-			// for (auto &child_filter : and_filter.child_filters) {
-			// 	cardinality_after_filters = MinValue(
-			// 			cardinality_after_filters, InspectTableFilter(cardinality, column_index, *child_filter, base_stats));
-			// }
-			// return cardinality_after_filters;
-		}
-		case TableFilterType::CONSTANT_COMPARISON: {
-			auto &comparison_filter = filter.Cast<ConstantFilter>();
+	if (filter.filter_type == TableFilterType::CONJUNCTION_AND) {
+		// Skip if no stats.
+		if (!parachute_stats.has(tab_name, col_name))
+			return cardinality_after_filters;
 
-			// Take the value.
-			auto val = comparison_filter.constant.GetValue<uint32_t>();
+		// To string.
+		auto filter_str = filter.ToString(col_name);
 
-			// TODO: Don't return if we have multiple filters (later).
-			if (!parachute_stats.has(tab_name, col_name))
-				return cardinality_after_filters;
+		// TODO: Match `col_name op1 val1 AND col_name op2 val2`.
+		// Example: `parachute_my_col >= 3 AND parachute_my_col <= 5`.
+    std::regex regex_str(R"((\w+)\s*(>=|<=|>|<|=|!=)\s*(\d+)\s+AND\s+\1\s*(>=|<=|>|<|=|!=)\s*(\d+))");
+    std::smatch match;
 
-			std::string op;
-			if (comparison_filter.comparison_type == ExpressionType::COMPARE_EQUAL) {
-				op = "=";
-			} else if (comparison_filter.comparison_type == ExpressionType::COMPARE_NOTEQUAL) {
-				op = "!=";
-			} else if (comparison_filter.comparison_type == ExpressionType::COMPARE_LESSTHAN) {
-				op = "<";
-			} else if (comparison_filter.comparison_type == ExpressionType::COMPARE_LESSTHANOREQUALTO) {
-				op = "<=";
-			} else if (comparison_filter.comparison_type == ExpressionType::COMPARE_GREATERTHAN) {
-				op = ">";
-			} else if (comparison_filter.comparison_type == ExpressionType::COMPARE_GREATERTHANOREQUALTO) {
-				op = ">=";
-			}
+    if (std::regex_match(input, match, regex_str)) {
+			D_ASSERT(col_name == match[1]);
+			std::string op1 = match[2];
+			uint64_t val1 = std::stoull(match[3]);
+			std::string op2 = match[4];
+			uint64_t val2 = std::stoull(match[5]);
 
-			if (!op.empty()) {
-				auto sel = parachute_stats.compute_selectivity(tab_name, col_name, op, val);
-				std::cerr << "[" << col_name << " " << op << " " << val << "]: sel=" << sel << std::endl;
+			std::cerr << "Match found!\n";
+			std::cerr << "col_name: " << col_name << "\n";
+			std::cerr << "op1: " << op1 << ", val1: " << val1 << "\n";
+			std::cerr << "op2: " << op2 << ", val2: " << val2 << "\n";
+				
+			assert((!op1.empty()) && (!op2.empty()));
+			if ((op1 == ">=") && (op2 == "<=")) {
+				auto range_card = parachute_stats.compute_range_card(tab_name, col_name, val1, val2);
+				auto full_card = parachute_stats.compute_full_card(tab_name, col_name);
+				auto sel = 1.0 * range_card / full_card;
 				return static_cast<idx_t>(sel * cardinality_after_filters);
 			}
-
-			std::cerr << "not found!" << std::endl;
-			std::cerr << "comparison_filter=" << comparison_filter.ToString(col_name) << std::endl;
-
-			// TODO
-			D_ASSERT(0);
 		}
-		default: {
-			std::cerr << "or here????" << std::endl;
-			auto filter_str = filter.ToString(col_name);
 
-			// NOTE: Optional filters actually start with `optional:`.
-			// NOTE: And even have the type optional.
+		D_ASSERT(0);
 
-			// IN-clause.
-			if (count_token(filter_str, " IN ")) {
-				auto values = parse_in_clause(filter_str, col_name);
+		// Default.
+		return cardinality_after_filters;
+	} else if (filter.filter_type == TableFilterType::CONSTANT_COMPARISON) {
+		auto &comparison_filter = filter.Cast<ConstantFilter>();
 
-				// Cumulate the total selectivity by using an equality.
-				double total_sel = 0;
-				for (auto val : values) {
-					auto sel = parachute_stats.compute_selectivity(tab_name, col_name, "=", std::stoull(val));
-					total_sel += sel;
-				}
-				std::cerr << filter_str << ": sel=" << total_sel << std::endl;
-				return static_cast<idx_t>(total_sel * cardinality_after_filters);
-			}
+		// Take the value.
+		auto val = comparison_filter.constant.GetValue<uint32_t>();
 
-			std::cerr << "comparison_filter=" << filter.ToString(col_name) << std::endl;
-			D_ASSERT(0);
-
+		// TODO: Don't return if we have multiple filters (later).
+		if (!parachute_stats.has(tab_name, col_name))
 			return cardinality_after_filters;
+
+		std::string op;
+		if (comparison_filter.comparison_type == ExpressionType::COMPARE_EQUAL) {
+			op = "=";
+		} else if (comparison_filter.comparison_type == ExpressionType::COMPARE_NOTEQUAL) {
+			op = "!=";
+		} else if (comparison_filter.comparison_type == ExpressionType::COMPARE_LESSTHAN) {
+			op = "<";
+		} else if (comparison_filter.comparison_type == ExpressionType::COMPARE_LESSTHANOREQUALTO) {
+			op = "<=";
+		} else if (comparison_filter.comparison_type == ExpressionType::COMPARE_GREATERTHAN) {
+			op = ">";
+		} else if (comparison_filter.comparison_type == ExpressionType::COMPARE_GREATERTHANOREQUALTO) {
+			op = ">=";
 		}
+
+		if (!op.empty()) {
+			auto sel = parachute_stats.compute_selectivity(tab_name, col_name, op, val);
+			std::cerr << "[" << col_name << " " << op << " " << val << "]: sel=" << sel << std::endl;
+			return static_cast<idx_t>(sel * cardinality_after_filters);
+		}
+
+		std::cerr << "not found!" << std::endl;
+		std::cerr << "filter_str=" << comparison_filter.ToString(col_name) << std::endl;
+
+		// Default.
+		return cardinality_after_filters;
+	} else {
+		// Filter to string.
+		auto filter_str = filter.ToString(col_name);
+
+		// Do we have an IN-clause?
+		if (count_token(filter_str, " IN ")) {
+			auto values = parse_in_clause(filter_str, col_name);
+
+			// Cumulate the total selectivity by using an equality.
+			double total_sel = 0;
+			for (auto val : values) {
+				auto sel = parachute_stats.compute_selectivity(tab_name, col_name, "=", std::stoull(val));
+				total_sel += sel;
+			}
+			std::cerr << filter_str << ": sel=" << total_sel << std::endl;
+			return static_cast<idx_t>(total_sel * cardinality_after_filters);
+		}
+
+		std::cerr << "filter_str=" << filter_str << std::endl;
+		D_ASSERT(0);
+
+		// Default.
+		return cardinality_after_filters;
 	}
 
 	// Unreachable.
-	assert(0);
+	D_ASSERT(0);
 }
 
 idx_t RelationStatisticsHelper::InspectTableFilter(idx_t cardinality, idx_t column_index, TableFilter &filter,
