@@ -188,6 +188,7 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 				}
 
 				// Take the minimum cardinality.
+				std::cerr << "[===>ovie] cardinality_with_filter=" << cardinality_with_filter << std::endl;
 				cardinality_after_filters = MinValue(cardinality_after_filters, cardinality_with_filter);
 			}
 
@@ -569,7 +570,7 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& parachute
     std::regex regex_str(R"((\w+)\s*(>=|<=|>|<|=|!=)\s*(\d+)\s+AND\s+\1\s*(>=|<=|>|<|=|!=)\s*(\d+))");
     std::smatch match;
 
-    if (std::regex_match(input, match, regex_str)) {
+    if (std::regex_match(filter_str, match, regex_str)) {
 			D_ASSERT(col_name == match[1]);
 			std::string op1 = match[2];
 			uint64_t val1 = std::stoull(match[3]);
@@ -581,9 +582,10 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& parachute
 			std::cerr << "op1: " << op1 << ", val1: " << val1 << "\n";
 			std::cerr << "op2: " << op2 << ", val2: " << val2 << "\n";
 				
-			assert((!op1.empty()) && (!op2.empty()));
+			D_ASSERT((!op1.empty()) && (!op2.empty()));
 			if ((op1 == ">=") && (op2 == "<=")) {
-				auto range_card = parachute_stats.compute_range_card(tab_name, col_name, val1, val2);
+				// Compute the range cardinality for [val1, val2] (:= [val1, val2 + 1[).
+				auto range_card = parachute_stats.compute_range_card(tab_name, col_name, val1, val2 + 1);
 				auto full_card = parachute_stats.compute_full_card(tab_name, col_name);
 				auto sel = 1.0 * range_card / full_card;
 				return static_cast<idx_t>(sel * cardinality_after_filters);
@@ -599,6 +601,8 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& parachute
 
 		// Take the value.
 		auto val = comparison_filter.constant.GetValue<uint32_t>();
+
+		std::cerr << "\t[CONSTANT_COMPARISON] val=" << val << std::endl;
 
 		// TODO: Don't return if we have multiple filters (later).
 		if (!parachute_stats.has(tab_name, col_name))
@@ -618,6 +622,8 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& parachute
 		} else if (comparison_filter.comparison_type == ExpressionType::COMPARE_GREATERTHANOREQUALTO) {
 			op = ">=";
 		}
+
+		std::cerr << "\t[CONSTANT_COMPARISON] op=" << op << std::endl;
 
 		if (!op.empty()) {
 			auto sel = parachute_stats.compute_selectivity(tab_name, col_name, op, val);

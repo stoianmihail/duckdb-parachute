@@ -1159,7 +1159,6 @@ ParachuteStats::ParachuteStats(std::string input_file, char delimiter) {
 
 		// Resize to be sure we have enough.
 		assert (field_index == 5);
-		data[curr_table_name][curr_col_name].resize(curr_num_bins);
 		assert (curr_bin_idx < curr_num_bins);
 		data[curr_table_name][curr_col_name].push_back({curr_bin_idx, curr_card});
 	}
@@ -1208,6 +1207,9 @@ double ParachuteStats::compute_selectivity(std::string tn, std::string cn, std::
 
 	auto infty = std::numeric_limits<idx_t>::max();
 	auto full_range_card = compute_full_card(tn, cn);
+
+	std::cerr << "\t[compute_selectivity] ful_range_card=" << full_range_card << std::endl;
+
 	if (op == "=") {
 		return 1.0 * compute_range_card(tn, cn, bin_idx, bin_idx + 1) / full_range_card;
 	} else if (op == "!=") {

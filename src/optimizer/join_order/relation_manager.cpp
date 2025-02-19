@@ -600,7 +600,7 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 			bool has_non_parachute_filter = false;
 			double custom_sel = 1.0;
 			if (datasource_filters.size() == 1) {
-				bool only_once = False;
+				bool only_once = false;
 				for (const auto& filter : datasource_filters) {
 					LogicalOperator& op = filter.get();
 					D_ASSERT(op.GetName() == "FILTER");

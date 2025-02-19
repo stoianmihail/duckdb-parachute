@@ -33,13 +33,12 @@ public:
 	ParachuteStats(std::string input_file, char delimiter=',');
 	bool empty() const;
 	bool has(std::string table_name, std::string column_name) const;
+	// Compute range cardinality in [lb, ub[.
+	idx_t compute_range_card(std::string table_name, std::string column_name, idx_t lb, idx_t ub) const;
 	// Compute range cardinality in [0, +oo[.
 	idx_t compute_full_card(std::string table_name, std::string column_name) const;
 	double compute_selectivity(std::string table_name, std::string column_name, std::string op, idx_t bin_idx) const;
 	double compute_mask_selectivity(std::string table_name, std::string column_name, idx_t bit_mask) const;
-private:
-	// Compute range cardinality in [lb, ub[.
-	idx_t compute_range_card(std::string table_name, std::string column_name, idx_t lb, idx_t ub) const;
 };
 
 struct ClientConfig {
