@@ -138,7 +138,7 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 	// Count the number of parachute filters.
 	unsigned parachute_filter_count = 0;
 
-	std::cerr << "\ntable_name=" << table_name << std::endl;
+	// std::cerr << "\ntable_name=" << table_name << std::endl;
 
 	if (!get.table_filters.filters.empty()) {
 		bool has_supported_filter = false;
@@ -155,7 +155,7 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 				column_name = get.GetTable()->GetColumn(LogicalIndex(it.first)).Name();
 			}
 
-			std::cerr << "--- column_name=" << column_name << std::endl;
+			// std::cerr << "--- column_name=" << column_name << std::endl;
 
 			// Check if it's a parachute column.
 			auto is_parachute_col = starts_with1(column_name, "parachute_");
@@ -164,8 +164,8 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 			parachute_filter_count += is_parachute_col;
 
 			if (column_statistics) {
-				std::cerr << "************ HAS COLUMN STATISTICS *************" << std::endl;
-				std::cerr << "IS IT OPTOINAL????? " << (it.second->filter_type == TableFilterType::OPTIONAL_FILTER) << std::endl;
+				// std::cerr << "************ HAS COLUMN STATISTICS *************" << std::endl;
+				// std::cerr << "IS IT OPTOINAL????? " << (it.second->filter_type == TableFilterType::OPTIONAL_FILTER) << std::endl;
 
 				idx_t cardinality_with_filter = cardinality_after_filters;
 				if (is_parachute_col) {
@@ -178,7 +178,7 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 							// Otherwise, use our estimates.
 							// TODO: Maybe we should have a not-supported?
 							cardinality_with_filter = InspectParachuteFilter(parachute_stats, base_table_cardinality, it.first, *it.second, table_name, column_name, *column_statistics);
-							std::cerr << "after ==> " << cardinality_with_filter << std::endl;
+							// std::cerr << "after ==> " << cardinality_with_filter << std::endl;
 						}
 					} else {
 						// Don't even try to estimate.
@@ -188,7 +188,7 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 				}
 
 				// Take the minimum cardinality.
-				std::cerr << "[===>ovie] cardinality_with_filter=" << cardinality_with_filter << std::endl;
+				// std::cerr << "[===>ovie] cardinality_with_filter=" << cardinality_with_filter << std::endl;
 				cardinality_after_filters = MinValue(cardinality_after_filters, cardinality_with_filter);
 			}
 
@@ -212,8 +212,8 @@ RelationStats RelationStatisticsHelper::ExtractGetStats(LogicalGet &get, ClientC
 			}
 		}
 
-		std::cerr << "has_supported_filter=" << has_supported_filter << " has_non_optional_filter=" << has_non_optional_filters << std::endl;
-		std::cerr << "parachute_filter_count=" << parachute_filter_count << " filters.size()=" << get.table_filters.filters.size() << std::endl;
+		// std::cerr << "has_supported_filter=" << has_supported_filter << " has_non_optional_filter=" << has_non_optional_filters << std::endl;
+		// std::cerr << "parachute_filter_count=" << parachute_filter_count << " filters.size()=" << get.table_filters.filters.size() << std::endl;
 
 		// if the above code didn't find an equality filter (i.e country_code = "[us]")
 		// and there are other table filters (i.e cost > 50), use default selectivity.
@@ -536,7 +536,7 @@ std::vector<std::string> parse_in_clause(const std::string& pred, const std::str
 idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& parachute_stats, idx_t cardinality, idx_t column_index,  TableFilter &filter, std::string tab_name, std::string col_name, BaseStatistics &base_stats) {
 	auto cardinality_after_filters = cardinality;
 	
-	std::cerr << "[InspectParachuteFilter] tn=" << tab_name << " cn=" << col_name << std::endl;
+	// std::cerr << "[InspectParachuteFilter] tn=" << tab_name << " cn=" << col_name << std::endl;
 
 	// Don't estimate optional parachute filters.
 	// NOTE: We might still estimate them from the artificially pushed filters.
@@ -544,8 +544,8 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& parachute
 		return cardinality_after_filters;
 	}
 
-	std::cerr << "filter_type=" << TableFilterTypeToString(filter.filter_type) << std::endl;
-	std::cerr << "filter=" << filter.ToString(col_name) << std::endl;
+	// std::cerr << "filter_type=" << TableFilterTypeToString(filter.filter_type) << std::endl;
+	// std::cerr << "filter=" << filter.ToString(col_name) << std::endl;
 
 	auto count_token = [&](const string& text, const string token) {
 		size_t ret = 0;
@@ -577,10 +577,10 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& parachute
 			std::string op2 = match[4];
 			uint64_t val2 = std::stoull(match[5]);
 
-			std::cerr << "Match found!\n";
-			std::cerr << "col_name: " << col_name << "\n";
-			std::cerr << "op1: " << op1 << ", val1: " << val1 << "\n";
-			std::cerr << "op2: " << op2 << ", val2: " << val2 << "\n";
+			// std::cerr << "Match found!\n";
+			// std::cerr << "col_name: " << col_name << "\n";
+			// std::cerr << "op1: " << op1 << ", val1: " << val1 << "\n";
+			// std::cerr << "op2: " << op2 << ", val2: " << val2 << "\n";
 				
 			D_ASSERT((!op1.empty()) && (!op2.empty()));
 			if ((op1 == ">=") && (op2 == "<=")) {
@@ -602,7 +602,7 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& parachute
 		// Take the value.
 		auto val = comparison_filter.constant.GetValue<uint32_t>();
 
-		std::cerr << "\t[CONSTANT_COMPARISON] val=" << val << std::endl;
+		// std::cerr << "\t[CONSTANT_COMPARISON] val=" << val << std::endl;
 
 		// TODO: Don't return if we have multiple filters (later).
 		if (!parachute_stats.has(tab_name, col_name))
@@ -623,16 +623,16 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& parachute
 			op = ">=";
 		}
 
-		std::cerr << "\t[CONSTANT_COMPARISON] op=" << op << std::endl;
+		// std::cerr << "\t[CONSTANT_COMPARISON] op=" << op << std::endl;
 
 		if (!op.empty()) {
 			auto sel = parachute_stats.compute_selectivity(tab_name, col_name, op, val);
-			std::cerr << "[" << col_name << " " << op << " " << val << "]: sel=" << sel << std::endl;
+			// std::cerr << "[" << col_name << " " << op << " " << val << "]: sel=" << sel << std::endl;
 			return static_cast<idx_t>(sel * cardinality_after_filters);
 		}
 
-		std::cerr << "not found!" << std::endl;
-		std::cerr << "filter_str=" << comparison_filter.ToString(col_name) << std::endl;
+		// std::cerr << "not found!" << std::endl;
+		// std::cerr << "filter_str=" << comparison_filter.ToString(col_name) << std::endl;
 
 		// Default.
 		return cardinality_after_filters;
@@ -650,11 +650,11 @@ idx_t RelationStatisticsHelper::InspectParachuteFilter(ParachuteStats& parachute
 				auto sel = parachute_stats.compute_selectivity(tab_name, col_name, "=", std::stoull(val));
 				total_sel += sel;
 			}
-			std::cerr << filter_str << ": sel=" << total_sel << std::endl;
+			// std::cerr << filter_str << ": sel=" << total_sel << std::endl;
 			return static_cast<idx_t>(total_sel * cardinality_after_filters);
 		}
 
-		std::cerr << "filter_str=" << filter_str << std::endl;
+		// std::cerr << "filter_str=" << filter_str << std::endl;
 		D_ASSERT(0);
 
 		// Default.
