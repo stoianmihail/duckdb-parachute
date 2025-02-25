@@ -609,17 +609,17 @@ bool RelationManager::ExtractJoinRelations(JoinOrderOptimizer &optimizer, Logica
 						// Take the string representation.
 						auto expr_str = expr->ToString();
 
-						std::cerr << "[LOGICAL_GET] " << expr_str << std::endl;
+						// std::cerr << "[LOGICAL_GET] " << expr_str << std::endl;
 
 						// Count `AND` and `OR`.
 						auto sep_count = count_token(expr_str, " AND ") + count_token(expr_str, " OR ");
 
-						std::cerr << "\tsep_count=" << sep_count << std::endl;
+						// std::cerr << "\tsep_count=" << sep_count << std::endl;
 
 						// Count the number of parachute columns.
 						auto parachute_count = count_token(expr_str, "parachute_");
 
-						std::cerr << "\tparachute_count=" << parachute_count << std::endl;
+						// std::cerr << "\tparachute_count=" << parachute_count << std::endl;
 
 						// Full house?
 						if (sep_count == parachute_count - 1) {
